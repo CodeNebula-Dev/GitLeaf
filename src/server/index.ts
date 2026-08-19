@@ -189,6 +189,32 @@ app.get('/api/projects/:id/pdf', (req, res) => {
   fs.createReadStream(pdfPath).pipe(res);
 });
 
+app.get('/api/projects/:id/export', (req, res) => {
+  const project = projectManager.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  const files = projectManager.getProjectFiles(project.rootPath);
+  const filesMap: Record<string, string> = {};
+  for (const f of files) {
+    if (f.type === 'file') {
+      try {
+        filesMap[f.path] = projectManager.readFile(project.rootPath, f.path);
+      } catch {}
+    }
+  }
+
+  // Export Git snapshots
+  const snapshots = historyTracker.listSnapshots(project.rootPath);
+  const snapshotsMap: Record<string, any> = {};
+  for (const s of snapshots) {
+    const detail = historyTracker.getSnapshot(project.rootPath, s.id);
+    if (detail) {
+      snapshotsMap[`${s.id}.json`] = detail;
+    }
+  }
+
+  res.json({ project, files: filesMap, snapshots: snapshotsMap });
+});
+
 // 5. Invitations & Sharing
 app.post('/api/projects/:id/invite', (req, res) => {
   const { role, email } = req.body;
@@ -200,13 +226,13 @@ app.post('/api/projects/:id/invite', (req, res) => {
   }
 });
 
-app.post('/api/invite/join', (req, res) => {
+app.post('/api/invite/join', async (req, res) => {
   const { token, collaboratorName } = req.body;
   if (!token || !collaboratorName) {
     return res.status(400).json({ error: 'Token and Name are required' });
   }
   try {
-    const project = inviteManager.acceptInvite(token, collaboratorName);
+    const project = await inviteManager.acceptInviteAsync(token, collaboratorName);
     res.json({ success: true, project });
   } catch (err: any) {
     res.status(400).json({ error: err.message });

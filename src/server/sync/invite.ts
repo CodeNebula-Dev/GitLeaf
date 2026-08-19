@@ -17,16 +17,12 @@ export interface InviteToken {
   hostIp?: string;
 }
 
-interface TokenPayload {
-  v: number;
+interface CompactPayload {
   id: string;
   name: string;
-  template: string;
   host: string;
-  role: 'editor' | 'viewer';
-  mainFile: string;
-  files: Record<string, string>;
-  created: number;
+  tpl?: string;
+  role?: 'editor' | 'viewer';
 }
 
 export function getLocalIp(): string {
@@ -56,36 +52,21 @@ export class InviteManager {
     }
 
     const hostIp = getLocalIp();
-    const projectFiles = this.projectManager.getProjectFiles(project.rootPath);
-    const filesContent: Record<string, string> = {};
-
-    for (const f of projectFiles) {
-      if (f.type === 'file' && (f.path.endsWith('.tex') || f.path.endsWith('.bib') || f.path.endsWith('.cls') || f.path.endsWith('.sty'))) {
-        try {
-          filesContent[f.path] = this.projectManager.readFile(project.rootPath, f.path);
-        } catch {}
-      }
-    }
-
-    const payload: TokenPayload = {
-      v: 1,
+    const payload: CompactPayload = {
       id: project.id,
       name: project.name,
-      template: project.template,
       host: `${hostIp}:${DEFAULT_SERVER_PORT}`,
+      tpl: 'ieee-conference',
       role,
-      mainFile: project.mainFile || 'main.tex',
-      files: filesContent,
-      created: Date.now(),
     };
 
-    const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
-    // Short prefix + encoded payload
-    const token = `gitleaf-${project.id.slice(0, 8)}-${encoded}`;
+    // Compact token: gl-<id>-<compactStr>
+    const compactStr = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const token = `gl-${project.id}-${compactStr}`;
 
     const invite: InviteToken = {
       token,
-      projectId,
+      projectId: project.id,
       projectName: project.name,
       role,
       createdTime: Date.now(),
@@ -95,7 +76,6 @@ export class InviteManager {
     };
 
     this.invites.set(token, invite);
-    // Also index by simple ID
     this.invites.set(project.id, invite);
     return invite;
   }
@@ -108,59 +88,98 @@ export class InviteManager {
     return null;
   }
 
-  public acceptInvite(token: string, collaboratorName: string): ProjectMetadata {
+  public parseTokenPayload(token: string): CompactPayload | null {
     const trimmed = token.trim();
-
-    // 1. Try decoding self-contained decentralized token
-    if (trimmed.startsWith('gitleaf-') && trimmed.includes('-')) {
-      const parts = trimmed.split('-');
-      const encoded = parts[parts.length - 1];
+    
+    // Try splitting by '-' to get the base64 part
+    const parts = trimmed.split('-');
+    for (let i = parts.length - 1; i >= 0; i--) {
       try {
-        const decodedStr = Buffer.from(encoded, 'base64url').toString('utf-8');
-        const payload: TokenPayload = JSON.parse(decodedStr);
-
-        if (payload && payload.id && payload.name) {
-          // Check if project already exists locally
-          let project = this.projectManager.getProject(payload.id);
-          if (!project) {
-            // Create project folder on collaborator's local SSD
-            project = this.projectManager.createProject(payload.name, payload.template as any);
-            // Overwrite with exact project ID so CRDT rooms match
-            project.id = payload.id;
-            const metaPath = path.join(project.rootPath, '.gitleaf.json');
-            fs.writeFileSync(metaPath, JSON.stringify(project, null, 2), 'utf-8');
-
-            // Write all received source files directly to SSD
-            if (payload.files) {
-              for (const [filePath, content] of Object.entries(payload.files)) {
-                this.projectManager.writeFile(project.rootPath, filePath, content);
-              }
-            }
-          }
-
-          // Add collaborator to local metadata
-          const existing = project.collaborators.find((c) => c.name.toLowerCase() === collaboratorName.toLowerCase());
-          if (!existing) {
-            project.collaborators.push({
-              id: nanoid(6),
-              name: collaboratorName,
-              color: ['#10B981', '#3B82F6', '#F59E0B', '#8B5CF6', '#EC4899'][project.collaborators.length % 5],
-              role: payload.role || 'editor',
-              lastActive: Date.now(),
-            });
-            const metaPath = path.join(project.rootPath, '.gitleaf.json');
-            fs.writeFileSync(metaPath, JSON.stringify(project, null, 2), 'utf-8');
-          }
-
-          return project;
+        const decodedStr = Buffer.from(parts[i], 'base64url').toString('utf-8');
+        if (decodedStr.startsWith('{') && decodedStr.includes('"id"')) {
+          const parsed = JSON.parse(decodedStr);
+          if (parsed && parsed.id) return parsed as CompactPayload;
         }
-      } catch (err) {
-        console.warn('Could not decode self-contained payload token, falling back to local memory lookup');
-      }
+      } catch {}
     }
 
-    // 2. Fallback: local memory lookup (if sharing on same local instance)
-    const invite = this.getInvite(trimmed);
+    // Try direct base64 decode of full token
+    try {
+      const decodedStr = Buffer.from(trimmed, 'base64url').toString('utf-8');
+      if (decodedStr.startsWith('{') && decodedStr.includes('"id"')) {
+        const parsed = JSON.parse(decodedStr);
+        if (parsed && parsed.id) return parsed as CompactPayload;
+      }
+    } catch {}
+
+    return null;
+  }
+
+  public async acceptInviteAsync(token: string, collaboratorName: string): Promise<ProjectMetadata> {
+    const payload = this.parseTokenPayload(token);
+
+    if (payload && payload.id) {
+      let project = this.projectManager.getProject(payload.id);
+
+      if (!project) {
+        // 1. Create project with exact Host Project Name
+        project = this.projectManager.createProject(payload.name || 'Shared Research Paper', (payload.tpl as any) || 'ieee-conference');
+        project.id = payload.id;
+        project.name = payload.name || project.name;
+        
+        const metaPath = path.join(project.rootPath, '.gitleaf.json');
+        fs.writeFileSync(metaPath, JSON.stringify(project, null, 2), 'utf-8');
+
+        // 2. Fetch and clone all files and history from Host Laptop
+        if (payload.host) {
+          try {
+            const fetchRes = await fetch(`http://${payload.host}/api/projects/${payload.id}/export`, {
+              signal: AbortSignal.timeout(5000),
+            });
+            if (fetchRes.ok) {
+              const exportData = await fetchRes.json();
+              
+              // Clone all files from host
+              if (exportData.files) {
+                for (const [filePath, content] of Object.entries(exportData.files)) {
+                  this.projectManager.writeFile(project.rootPath, filePath, content as string);
+                }
+              }
+
+              // Clone all Git snapshot history from host
+              if (exportData.snapshots) {
+                const historyDir = path.join(project.rootPath, '.gitleaf_history');
+                if (!fs.existsSync(historyDir)) fs.mkdirSync(historyDir, { recursive: true });
+                for (const [snapFile, snapDetail] of Object.entries(exportData.snapshots)) {
+                  fs.writeFileSync(path.join(historyDir, snapFile), JSON.stringify(snapDetail, null, 2), 'utf-8');
+                }
+              }
+            }
+          } catch (fetchErr) {
+            console.warn(`Host http://${payload.host} unreachable via direct HTTP:`, fetchErr);
+          }
+        }
+      }
+
+      // 3. Register collaborator
+      const existing = project.collaborators.find((c) => c.name.toLowerCase() === collaboratorName.toLowerCase());
+      if (!existing) {
+        project.collaborators.push({
+          id: nanoid(6),
+          name: collaboratorName,
+          color: ['#10B981', '#3B82F6', '#F59E0B', '#8B5CF6', '#EC4899'][project.collaborators.length % 5],
+          role: payload.role || 'editor',
+          lastActive: Date.now(),
+        });
+        const metaPath = path.join(project.rootPath, '.gitleaf.json');
+        fs.writeFileSync(metaPath, JSON.stringify(project, null, 2), 'utf-8');
+      }
+
+      return project;
+    }
+
+    // Fallback: local memory lookup
+    const invite = this.getInvite(token.trim());
     if (invite) {
       const project = this.projectManager.getProject(invite.projectId);
       if (project) {
@@ -178,8 +197,24 @@ export class InviteManager {
       }
     }
 
-    // 3. Fallback: create a paired mirror project with the token identifier
-    const project = this.projectManager.createProject('Shared LaTeX Paper', 'ieee-conference');
-    return project;
+    // Default fallback
+    return this.projectManager.createProject('Shared LaTeX Paper', 'ieee-conference');
+  }
+
+  public acceptInvite(token: string, collaboratorName: string): ProjectMetadata {
+    const payload = this.parseTokenPayload(token);
+    if (payload && payload.id) {
+      let project = this.projectManager.getProject(payload.id);
+      if (!project) {
+        project = this.projectManager.createProject(payload.name || 'Shared Research Paper', (payload.tpl as any) || 'ieee-conference');
+        project.id = payload.id;
+        project.name = payload.name || project.name;
+        const metaPath = path.join(project.rootPath, '.gitleaf.json');
+        fs.writeFileSync(metaPath, JSON.stringify(project, null, 2), 'utf-8');
+      }
+      return project;
+    }
+
+    return this.projectManager.createProject('Shared LaTeX Paper', 'ieee-conference');
   }
 }
