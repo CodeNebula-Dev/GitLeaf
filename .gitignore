@@ -12,3 +12,5 @@ build/
 .env
 .env.local
 *.local
+projects/
+*.pdf
