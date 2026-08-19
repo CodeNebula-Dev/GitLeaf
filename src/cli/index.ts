@@ -6,16 +6,67 @@ import { detectSystemTeX } from './system.js';
 import { DEFAULT_CLIENT_PORT, DEFAULT_SERVER_PORT } from '../shared/constants.js';
 
 const args = process.argv.slice(2);
-const command = args[0] || 'status';
+const command = args[0] || 'help';
 
 const projectManager = new ProjectManager();
 const compiler = new LatexCompiler();
 const historyTracker = new HistoryTracker();
 
+function printHelp() {
+  const { green, orange, dim, white, bold, reset, cyan } = ANSI;
+
+  console.log(`
+${bold}${white}GitLeaf CLI v0.1.0${reset} ${dim}──${reset} ${green}Local-First Collaborative LaTeX Platform${reset}
+
+${bold}USAGE:${reset}
+  ${cyan}npm run cli -- <command> [arguments]${reset}
+  ${cyan}gitleaf <command> [arguments]${reset}
+
+${bold}COLLABORATION & SYNC:${reset}
+  ${green}join${reset}    ${white}<token> [name]${reset}     Join a shared paper from co-author & mirror locally to disk
+  ${green}pull${reset}    ${white}[project]${reset}          Pull and synchronize latest co-author edits directly to disk
+  ${green}history${reset} ${white}[project]${reset}          Show Git commit timeline, author logs, and revision checkpoints
+
+${bold}LATEX COMPILATION:${reset}
+  ${green}compile${reset} ${white}[project]${reset}          Compile LaTeX project to PDF using Tectonic / TeX Live
+
+${bold}PROJECT MANAGEMENT:${reset}
+  ${green}init${reset}    ${white}<name> [template]${reset}  Create a new local LaTeX paper
+                         ${dim}Templates: ieee-conference, acm-sigconf, springer-nature, article-simple, blank${reset}
+  ${green}list${reset}                     List all local projects and disk paths
+  ${green}open${reset}                     Display local server status, ports, and Web UI URLs
+
+${bold}INFO & DIAGNOSTICS:${reset}
+  ${green}status${reset}                   Show local LaTeX compiler status, CRDT mesh, and port diagnostics
+  ${green}help, -h, --help${reset}         Show this help reference guide
+  ${green}version, -v${reset}              Show GitLeaf version
+
+${bold}EXAMPLES:${reset}
+  ${dim}$${reset} npm run cli -- join gitleaf-k9a2bc1f "Alice Turing"
+  ${dim}$${reset} npm run cli -- compile "DNN-LatexWork"
+  ${dim}$${reset} npm run cli -- history
+  ${dim}$${reset} npm run cli -- pull
+`);
+}
+
 async function main() {
   const { green, orange, dim, white, bold, reset, cyan } = ANSI;
 
-  switch (command) {
+  switch (command.toLowerCase()) {
+    case 'help':
+    case '--help':
+    case '-h': {
+      printHelp();
+      break;
+    }
+
+    case 'version':
+    case '--version':
+    case '-v': {
+      console.log(`\n${bold}GitLeaf${reset} version ${green}0.1.0${reset} (local-first, crdt-mesh, git-history)\n`);
+      break;
+    }
+
     case 'status':
     case 'open': {
       const tex = detectSystemTeX();
@@ -172,15 +223,8 @@ async function main() {
     }
 
     default: {
-      console.log(`
-${bold}GitLeaf CLI Usage:${reset}
-  gitleaf pull [name]              Sync & pull latest co-author edits directly to disk
-  gitleaf history [name]           Show Git commit timeline & checkpoint logs
-  gitleaf compile [name]           Compile LaTeX project from CLI with Tectonic
-  gitleaf init <name> [template]   Create a new local LaTeX paper
-  gitleaf list                     List all local projects
-  gitleaf open                     Display server status and URLs
-`);
+      console.log(`\n${orange}Unknown command:${reset} ${command}`);
+      printHelp();
     }
   }
 }

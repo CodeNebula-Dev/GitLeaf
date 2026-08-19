@@ -87,23 +87,33 @@ Traditional cloud LaTeX platforms impose arbitrary limits (such as a 2-collabora
 
 ---
 
-## CLI & Workflow
+## CLI Reference & Workflow
 
 ```bash
-# Initialize a new local paper
-$ gitleaf init my-research-paper
+# Display CLI help & manual
+$ gitleaf help
 
-# Launch local editor & live preview
-$ gitleaf open ./my-research-paper
+# Initialize a new local paper from academic template
+$ gitleaf init "My Research Paper" ieee-conference
+# (Templates: ieee-conference, acm-sigconf, springer-nature, article-simple, blank)
 
-# Generate an invite token for a co-author
-$ gitleaf invite --role editor
+# Join a shared paper from a co-author and mirror locally to disk
+$ gitleaf join <INVITE_TOKEN> "Your Name"
 
-# Join a shared paper from another author
-$ gitleaf join <INVITE_TOKEN> --dest ./my-local-copy
+# Pull and synchronize latest co-author edits directly to disk
+$ gitleaf pull
 
-# Trigger local compilation from CLI
-$ gitleaf compile --engine pdflatex
+# View Git commit timeline and revision checkpoints in terminal
+$ gitleaf history
+
+# Compile LaTeX paper directly from CLI (< 600ms)
+$ gitleaf compile
+
+# List all local papers and directory paths
+$ gitleaf list
+
+# Launch local workspace engine and live Web IDE
+$ gitleaf open
 ```
 
 ---
