@@ -88,13 +88,39 @@ async function main() {
     case 'share':
     case 'invite': {
       const projects = projectManager.listProjects();
-      const targetName = args[1];
-      const target = targetName
-        ? projects.find((p) => p.name.toLowerCase().includes(targetName.toLowerCase()) || p.id === targetName)
-        : projects[0];
+      if (projects.length === 0) {
+        console.log(`\n${orange}No local projects found to share. Create one with: gitleaf init <name>${reset}\n`);
+        return;
+      }
+
+      let target = null;
+      const targetArg = args[1];
+
+      if (targetArg) {
+        const num = parseInt(targetArg, 10);
+        if (!isNaN(num) && num >= 1 && num <= projects.length) {
+          target = projects[num - 1];
+        } else {
+          target = projects.find(
+            (p) =>
+              p.name.toLowerCase().includes(targetArg.toLowerCase()) ||
+              p.id.toLowerCase().includes(targetArg.toLowerCase())
+          );
+        }
+      } else if (projects.length === 1) {
+        target = projects[0];
+      } else {
+        console.log(`\n${bold}Select a Project to Share:${reset}`);
+        console.log(`${dim}------------------------------------------------------------${reset}`);
+        projects.forEach((p, idx) => {
+          console.log(`  ${green}${idx + 1}.${reset} ${bold}${p.name}${reset} ${dim}(id: ${p.id})${reset}`);
+        });
+        console.log(`\n${dim}Run:${reset} ${cyan}gitleaf share <number-or-name>${reset} (e.g. ${cyan}gitleaf share 1${reset})\n`);
+        return;
+      }
 
       if (!target) {
-        console.log(`\n${orange}No project found to share.${reset}\n`);
+        console.log(`\n${orange}Project not found matching "${targetArg}". Run 'gitleaf list' to view all projects.${reset}\n`);
         return;
       }
 
@@ -142,8 +168,9 @@ async function main() {
         return;
       }
 
-      console.log(`\n${dim}Resolving invite token:${reset} ${cyan}${token}${reset}`);
+      console.log(`\n${dim}Resolving invite token:${reset} ${cyan}${token.slice(0, 24)}...${reset}`);
       try {
+        // First try via local daemon if running
         const res = await fetch(`http://127.0.0.1:${DEFAULT_SERVER_PORT}/api/invite/join`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -155,14 +182,19 @@ async function main() {
           console.log(`${green}✓ Successfully joined paper:${reset} ${bold}${data.project?.name || 'Project'}${reset}`);
           console.log(`${dim}Local disk mirror :${reset} ${white}${data.project?.rootPath}${reset}`);
           console.log(`${dim}Role              :${reset} ${green}Editor (Unlimited Free)${reset}\n`);
-        } else {
-          const project = projectManager.createProject('Shared Paper', 'ieee-conference');
-          console.log(`${green}✓ Created local paired mirror:${reset} ${bold}${project.name}${reset}`);
-          console.log(`${dim}Location:${reset} ${white}${project.rootPath}${reset}\n`);
+          return;
         }
+      } catch {}
+
+      // Decentralized direct creation if daemon was offline
+      try {
+        const project = inviteManager.acceptInvite(token, name);
+        console.log(`${green}✓ Successfully joined paper:${reset} ${bold}${project.name}${reset}`);
+        console.log(`${dim}Local disk mirror :${reset} ${white}${project.rootPath}${reset}`);
+        console.log(`${dim}Role              :${reset} ${green}Editor (Unlimited Free)${reset}`);
+        console.log(`${dim}Ready to edit! Launch workspace with:${reset} ${cyan}npm run dev${reset}\n`);
       } catch (err: any) {
-        console.log(`${orange}Note:${reset} Local daemon not running on port ${DEFAULT_SERVER_PORT}.`);
-        console.log(`Start with ${green}npm run dev${reset} to open the live collaborative workspace.\n`);
+        console.log(`${orange}Failed to join:${reset} ${err.message}\n`);
       }
       break;
     }
