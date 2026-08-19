@@ -138,7 +138,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <div className="flex items-center space-x-2 text-dark-text">
               <Users className="w-4 h-4 text-leaf-400" />
-              <span>Unlimited Co-Authors ($0)</span>
+              <span>Unlimited Co-Authors</span>
             </div>
             <div className="flex items-center space-x-2 text-dark-text">
               <ShieldCheck className="w-4 h-4 text-leaf-400" />

@@ -10,11 +10,13 @@ export function useProject() {
   const [compilationResult, setCompilationResult] = useState<CompilationResult | null>(null);
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [autoCompile, setAutoCompile] = useState<boolean>(false);
+  const [isFileLoading, setIsFileLoading] = useState<boolean>(false);
   const [cursorPosition, setCursorPosition] = useState<{ line: number; column: number }>({ line: 1, column: 1 });
   const [targetJumpLine, setTargetJumpLine] = useState<number | null>(null);
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const fileLoadedRef = useRef<boolean>(false);
+  const currentPathRef = useRef<string>('main.tex');
 
   // 1. Fetch Projects
   const fetchProjects = useCallback(async () => {
@@ -23,14 +25,11 @@ export function useProject() {
       if (res.ok) {
         const data = await res.json();
         setProjects(data);
-        if (data.length > 0 && !currentProject) {
-          setCurrentProject(data[0]);
-        }
       }
     } catch (err) {
       console.error('Error fetching projects:', err);
     }
-  }, [currentProject]);
+  }, []);
 
   useEffect(() => {
     fetchProjects();
@@ -46,10 +45,29 @@ export function useProject() {
         setFiles(data.files);
         if (data.project) setCurrentProject(data.project);
 
+        // If project already has a compiled PDF on disk, load it into preview immediately!
+        if (data.hasPdf && data.pdfUrl) {
+          setCompilationResult((prev) => {
+            if (!prev || !prev.pdfUrl) {
+              return {
+                success: true,
+                pdfUrl: data.pdfUrl,
+                diagnostics: [],
+                log: 'Loaded existing compiled PDF from disk.',
+                durationMs: 0,
+                timestamp: data.pdfMtime || Date.now(),
+              };
+            }
+            return prev;
+          });
+        }
+
         // Ensure active file is valid
         if (!data.files.some((f: ProjectFile) => f.path === activeFilePath)) {
           const main = data.files.find((f: ProjectFile) => f.isMain || f.name === 'main.tex');
-          if (main) setActiveFilePath(main.path);
+          if (main) {
+            setActiveFilePath(main.path);
+          }
         }
       }
     } catch (err) {
@@ -58,33 +76,45 @@ export function useProject() {
   }, [currentProject, activeFilePath]);
 
   useEffect(() => {
-    fetchFiles();
-  }, [fetchFiles]);
+    if (currentProject) {
+      fetchFiles();
+    }
+  }, [currentProject, fetchFiles]);
 
-  // 3. Fetch Active File Content
-  const fetchFileContent = useCallback(async (path: string) => {
-    if (!currentProject || !path) return;
+  // 3. Fetch Active File Content Safely
+  const fetchFileContent = useCallback(async (projectId: string, path: string) => {
+    if (!projectId || !path) return;
+    setIsFileLoading(true);
+    fileLoadedRef.current = false;
+    currentPathRef.current = path;
+
     try {
-      const res = await fetch(`/api/projects/${currentProject.id}/file-content?path=${encodeURIComponent(path)}`);
+      const res = await fetch(`/api/projects/${projectId}/file-content?path=${encodeURIComponent(path)}`);
       if (res.ok) {
         const data = await res.json();
-        setActiveFileContent(data.content);
+        // Only apply if we haven't switched to another file in the meantime
+        if (currentPathRef.current === path) {
+          setActiveFileContent(data.content || '');
+          fileLoadedRef.current = true;
+        }
       }
     } catch (err) {
       console.error('Error loading file content:', err);
+    } finally {
+      setIsFileLoading(false);
     }
-  }, [currentProject]);
+  }, []);
 
   useEffect(() => {
-    if (activeFilePath) {
-      fetchFileContent(activeFilePath);
+    if (currentProject && activeFilePath) {
+      fetchFileContent(currentProject.id, activeFilePath);
     }
-  }, [activeFilePath, fetchFileContent]);
+  }, [currentProject?.id, activeFilePath, fetchFileContent]);
 
-  // 4. Save Content (debounced / immediate)
+  // 4. Save Content (debounced / safe)
   const saveContent = useCallback(
     async (path: string, content: string) => {
-      if (!currentProject) return;
+      if (!currentProject || !fileLoadedRef.current || !path) return;
       setIsSaving(true);
       try {
         await fetch(`/api/projects/${currentProject.id}/file-content`, {
@@ -103,11 +133,13 @@ export function useProject() {
 
   const handleContentChange = useCallback(
     (newContent: string) => {
+      if (!fileLoadedRef.current) return;
       setActiveFileContent(newContent);
+
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(() => {
         saveContent(activeFilePath, newContent);
-      }, 600);
+      }, 500);
     },
     [activeFilePath, saveContent]
   );
@@ -117,14 +149,20 @@ export function useProject() {
     if (!currentProject) return;
     setIsCompiling(true);
 
-    // Save active file first before compiling
-    await saveContent(activeFilePath, activeFileContent);
+    // If file is loaded and has unsaved edits, save immediately before compiling
+    if (fileLoadedRef.current && activeFilePath) {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      await saveContent(activeFilePath, activeFileContent);
+    }
 
     try {
       const res = await fetch(`/api/projects/${currentProject.id}/compile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mainFile: currentProject.mainFile || 'main.tex', engine: currentProject.engine }),
+        body: JSON.stringify({
+          mainFile: currentProject.mainFile || 'main.tex',
+          engine: currentProject.engine,
+        }),
       });
       if (res.ok) {
         const data: CompilationResult = await res.json();
@@ -136,13 +174,6 @@ export function useProject() {
       setIsCompiling(false);
     }
   }, [currentProject, activeFilePath, activeFileContent, saveContent]);
-
-  // Initial compile on load if no result yet
-  useEffect(() => {
-    if (currentProject && !compilationResult && !isCompiling) {
-      compile();
-    }
-  }, [currentProject]);
 
   // 6. Create File or Folder
   const createFile = async (relPath: string, type: 'file' | 'directory' = 'file') => {
@@ -198,7 +229,40 @@ export function useProject() {
     }
   };
 
-  // 9. Jump to Diagnostic
+  // 9. Format LaTeX Code Helper
+  const formatCode = useCallback(() => {
+    if (!activeFileContent) return;
+    const lines = activeFileContent.split('\n');
+    let indentLevel = 0;
+    const formattedLines = lines.map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return '';
+
+      // Decrease indent for \end{...} or \right or closing environments
+      if (trimmed.startsWith('\\end{') || trimmed.startsWith('\\right') || trimmed.startsWith('}')) {
+        indentLevel = Math.max(0, indentLevel - 1);
+      }
+
+      const indent = '\t'.repeat(indentLevel);
+      const result = `${indent}${trimmed}`;
+
+      // Increase indent for \begin{...} or \left or opening environments
+      if (trimmed.startsWith('\\begin{') || trimmed.startsWith('\\left') || trimmed.endsWith('{')) {
+        // Exclude inline single line begin/end
+        if (!trimmed.includes('\\end{')) {
+          indentLevel++;
+        }
+      }
+
+      return result;
+    });
+
+    const newFormatted = formattedLines.join('\n');
+    setActiveFileContent(newFormatted);
+    saveContent(activeFilePath, newFormatted);
+  }, [activeFileContent, activeFilePath, saveContent]);
+
+  // 10. Jump to Diagnostic
   const jumpToLine = (file: string, line: number) => {
     if (file && file !== activeFilePath) {
       setActiveFilePath(file);
@@ -218,17 +282,18 @@ export function useProject() {
     compilationResult,
     isCompiling,
     isSaving,
-    autoCompile,
-    setAutoCompile,
+    isFileLoading,
     cursorPosition,
     setCursorPosition,
     targetJumpLine,
     setTargetJumpLine,
     compile,
+    formatCode,
     createFile,
     deleteFile,
     createProject,
     jumpToLine,
     refreshFiles: fetchFiles,
+    refreshProjects: fetchProjects,
   };
 }

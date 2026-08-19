@@ -10,6 +10,7 @@ interface NavbarProps {
   onSelectProject: (proj: ProjectMetadata) => void;
   onBackToDashboard: () => void;
   onCompile: () => void;
+  onFormat?: () => void;
   isCompiling: boolean;
   isSaving: boolean;
   onOpenShare: () => void;
@@ -25,6 +26,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectProject,
   onBackToDashboard,
   onCompile,
+  onFormat,
   isCompiling,
   isSaving,
   onOpenShare,
@@ -125,6 +127,17 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </button>
 
+        {/* Format Code */}
+        {onFormat && (
+          <button
+            onClick={onFormat}
+            className="px-2.5 py-1 rounded-md hover:bg-dark-hover text-dark-muted hover:text-white text-xs font-mono border border-transparent hover:border-dark-border flex items-center space-x-1"
+            title="Format LaTeX Code (Auto-Indent)"
+          >
+            <span>Format</span>
+          </button>
+        )}
+
         {/* Save state */}
         <div className="text-[11px] font-mono text-dark-muted hidden md:block">
           {isSaving ? (
@@ -144,9 +157,6 @@ export const Navbar: React.FC<NavbarProps> = ({
         >
           <Share2 className="w-3.5 h-3.5 text-leaf-400" />
           <span>Share</span>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-leaf-500/20 text-leaf-400 font-bold">
-            0$
-          </span>
         </button>
 
         <button

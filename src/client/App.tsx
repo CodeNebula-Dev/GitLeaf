@@ -38,6 +38,7 @@ export const App: React.FC = () => {
     targetJumpLine,
     setTargetJumpLine,
     compile,
+    formatCode,
     createFile,
     deleteFile,
     createProject,
@@ -84,6 +85,7 @@ export const App: React.FC = () => {
             onSelectProject={setCurrentProject}
             onBackToDashboard={() => setViewMode('dashboard')}
             onCompile={compile}
+            onFormat={formatCode}
             isCompiling={isCompiling}
             isSaving={isSaving}
             onOpenShare={() => setShareModalOpen(true)}

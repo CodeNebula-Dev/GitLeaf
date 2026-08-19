@@ -30,37 +30,46 @@ export class LatexCompiler {
       };
     }
 
-    // If native engine is available, execute native compiler
-    if (selectedEngine !== 'wasm' && (systemStatus.hasPdflatex || systemStatus.hasTectonic || systemStatus.hasXelatex)) {
+    // 1. Try Native TeX Compiler (Tectonic / pdflatex / xelatex)
+    if (selectedEngine !== 'wasm' && (systemStatus.hasTectonic || systemStatus.hasPdflatex || systemStatus.hasXelatex)) {
       try {
-        const nativeRes = await this.runNativeCompiler(projectRoot, mainFile, selectedEngine, startTime);
+        const nativeRes = await this.runNativeCompiler(projectRoot, mainFile, systemStatus, startTime);
         if (nativeRes.success && nativeRes.pdfPath && fs.existsSync(nativeRes.pdfPath)) {
           return nativeRes;
         }
       } catch (err: any) {
-        console.warn(`Native compiler (${selectedEngine}) encountered error: ${err.message}. Falling back to embedded renderer.`);
+        console.warn(`Native compiler encountered error: ${err.message}. Falling back to high-fidelity PDFKit engine.`);
       }
     }
 
-    // Fallback: High-Fidelity Multi-Page PDFKit Academic Engine
+    // 2. High-Fidelity Multi-Page PDFKit Academic Engine Fallback
     return await this.runAcademicPdfEngine(projectRoot, mainFile, startTime);
   }
 
   private runNativeCompiler(
     projectRoot: string,
     mainFile: string,
-    engine: string,
+    systemStatus: ReturnType<typeof detectSystemTeX>,
     startTime: number
   ): Promise<CompilationResult> {
     return new Promise((resolve) => {
-      const cmd = engine === 'tectonic' ? 'tectonic' : (engine === 'xelatex' ? 'xelatex' : 'pdflatex');
-      const args = engine === 'tectonic' 
-        ? ['-X', 'compile', '--synctex', mainFile]
-        : ['-synctex=1', '-interaction=nonstopmode', '-file-line-error', mainFile];
+      let cmd = 'tectonic';
+      let args: string[] = ['--synctex', '--keep-logs', '--print', mainFile];
+
+      if (systemStatus.hasTectonic && systemStatus.tectonicPath) {
+        cmd = systemStatus.tectonicPath;
+        args = ['--synctex', '--keep-logs', '--print', mainFile];
+      } else if (systemStatus.hasPdflatex) {
+        cmd = systemStatus.pdflatexPath || 'pdflatex';
+        args = ['-synctex=1', '-interaction=nonstopmode', '-file-line-error', mainFile];
+      }
 
       const child = spawn(cmd, args, {
         cwd: projectRoot,
-        env: { ...process.env },
+        env: {
+          ...process.env,
+          PATH: `/opt/homebrew/bin:/usr/local/bin:/Library/TeX/texbin:${process.env.PATH || ''}`,
+        },
       });
 
       let stdout = '';
@@ -82,7 +91,7 @@ export class LatexCompiler {
         const hasPdf = fs.existsSync(pdfPath);
 
         const diagnostics = parseLatexLog(fullLog, mainFile);
-        const success = code === 0 && hasPdf;
+        const success = (code === 0 || hasPdf);
 
         resolve({
           success,

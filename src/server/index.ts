@@ -54,14 +54,32 @@ app.post('/api/projects', (req, res) => {
   res.json(project);
 });
 
-// 3. Project Detail & Files
+// 3. Project Detail & Files (Includes existing PDF check)
 app.get('/api/projects/:id', (req, res) => {
   const project = projectManager.getProject(req.params.id);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
   const files = projectManager.getProjectFiles(project.rootPath);
-  res.json({ project, files });
+  
+  const mainBase = (project.mainFile || 'main.tex').replace(/\.tex$/i, '');
+  const pdfPath = path.join(project.rootPath, `${mainBase}.pdf`);
+  const hasPdf = fs.existsSync(pdfPath);
+  let pdfUrl: string | undefined = undefined;
+  let pdfMtime = 0;
+
+  if (hasPdf) {
+    pdfMtime = fs.statSync(pdfPath).mtimeMs;
+    pdfUrl = `/api/projects/${project.id}/pdf?t=${pdfMtime}`;
+  }
+
+  res.json({
+    project,
+    files,
+    hasPdf,
+    pdfUrl,
+    pdfMtime,
+  });
 });
 
 app.get('/api/projects/:id/files', (req, res) => {
@@ -159,11 +177,15 @@ app.get('/api/projects/:id/pdf', (req, res) => {
   const pdfPath = path.join(project.rootPath, `${mainBase}.pdf`);
 
   if (!fs.existsSync(pdfPath)) {
-    return res.status(404).send('PDF not yet compiled. Click Compile in the editor.');
+    return res.status(404).send('PDF not yet compiled. Click Recompile in the editor.');
   }
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${mainBase}.pdf"`);
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  
   fs.createReadStream(pdfPath).pipe(res);
 });
 
