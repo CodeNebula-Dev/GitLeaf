@@ -1,9 +1,19 @@
+<p align="center">
+  <img src="assets/banner.svg" alt="GitLeaf Banner" width="100%" />
+</p>
+
 ```text
-   ______ _ _    __                 ____
-  / ____/(_) /_ / /   ___  ____ _   / __/
- / / __ / / __// /   / _ \/ __ `/  / /_  
-/ /_/ // / /_ / /___/  __/ /_/ /  / __/  
-\____//_/\__//_____/\___/\__,_/  /_/     
+// ============================================================================== //
+//  [GIT]                                                         [LEAF]          //
+//  ----------------------------                   ----------------------------  //
+//   ██████╗ ██╗████████╗                           ██╗     ███████╗ █████╗ ███████╗  //
+//  ██╔════╝ ██║╚══██╔══╝      \ /                 ██║     ██╔════╝██╔══██╗██╔════╝  //
+//  ██║  ███╗██║   ██║       ---|---               ██║     █████╗  ███████║█████╗    //
+//  ██║   ██║██║   ██║         / \                 ██║     ██╔══╝  ██╔══██║██╔══╝    //
+//  ╚██████╔╝██║   ██║                             ███████╗███████╗██║  ██║██║       //
+//  ----------------------------                   ----------------------------  //
+//  >> GIT [local & version-controlled]            >> LEAF [real-time live collab]//
+// ============================================================================== //
 ```
 
 ```text
@@ -19,7 +29,7 @@
 
 GitLeaf is a local-first collaborative LaTeX environment designed to eliminate subscription fees and author paywalls.
 
-Traditional cloud LaTeX platforms impose arbitrary limits (e.g. 2 collaborators on free plans) and lock your papers inside proprietary cloud databases. GitLeaf operates directly on your local filesystem: projects are stored as standard folders on your drive, synced across team members in real-time via Conflict-Free Replicated Data Types (CRDTs), and version-controlled with Git.
+Traditional cloud LaTeX platforms impose arbitrary limits (such as a 2-collaborator cap on free plans) and lock documents inside proprietary remote databases. GitLeaf operates directly on your local filesystem: projects are stored as standard folders on your drive, synced across team members in real-time via Conflict-Free Replicated Data Types (CRDTs), and version-controlled with Git.
 
 ```text
 +-----------------------------------------------------------------------------+
@@ -145,6 +155,7 @@ The application will be available at `http://localhost:5173`.
 
 ```text
 GitLeaf/
+|-- assets/                   # Vector banners and graphics
 |-- src/
 |   |-- client/               # React frontend with Monaco & PDF viewer
 |   |   |-- components/       # Editor, PDF viewer, file tree, toolbar
