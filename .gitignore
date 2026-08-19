@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.DS_Store
+*.log
+*.aux
+*.out
+*.synctex.gz
+*.toc
+*.fls
+*.fdb_latexmk
+.env
+.env.local
+*.local
