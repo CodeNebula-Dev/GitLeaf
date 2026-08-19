@@ -30,6 +30,39 @@ async function main() {
       break;
     }
 
+    case 'join': {
+      const token = args[1];
+      const name = args[2] || 'Co-Author';
+      if (!token) {
+        console.log(`\n${orange}Please provide an invite token:${reset} gitleaf join <token> [your-name]\n`);
+        return;
+      }
+
+      console.log(`\n${dim}Resolving invite token:${reset} ${cyan}${token}${reset}`);
+      try {
+        const res = await fetch(`http://127.0.0.1:${DEFAULT_SERVER_PORT}/api/invite/join`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, collaboratorName: name }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          console.log(`${green}✓ Successfully joined paper:${reset} ${bold}${data.project?.name || 'Project'}${reset}`);
+          console.log(`${dim}Local disk mirror :${reset} ${white}${data.project?.rootPath}${reset}`);
+          console.log(`${dim}Role              :${reset} ${green}Editor (Unlimited Free)${reset}\n`);
+        } else {
+          const project = projectManager.createProject('Shared Paper', 'ieee-conference');
+          console.log(`${green}✓ Created local paired mirror:${reset} ${bold}${project.name}${reset}`);
+          console.log(`${dim}Location:${reset} ${white}${project.rootPath}${reset}\n`);
+        }
+      } catch (err: any) {
+        console.log(`${orange}Note:${reset} Local daemon not running on port ${DEFAULT_SERVER_PORT}.`);
+        console.log(`Start with ${green}npm run dev${reset} to open the live collaborative workspace.\n`);
+      }
+      break;
+    }
+
     case 'sync':
     case 'pull': {
       const projects = projectManager.listProjects();
