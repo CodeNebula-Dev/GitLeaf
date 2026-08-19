@@ -4,7 +4,7 @@
   "description": "The open-source, local-first, collaborative LaTeX platform",
   "type": "module",
   "bin": {
-    "gitleaf": "./dist/cli/index.js"
+    "gitleaf": "./bin/gitleaf.js"
   },
   "scripts": {
     "dev": "concurrently -k -n \"SERVER,CLIENT\" -c \"green,cyan\" \"npm run dev:server\" \"npm run dev:client\"",
