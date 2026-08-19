@@ -146,7 +146,7 @@ $ gitleaf open
 - Node.js (v18.0.0 or higher)
 - Optional: Local TeX installation (`pdflatex`, `xelatex`, or `tectonic`) for native compilation speed.
 
-### 2. Installation
+### 2. Installation & Setup
 
 ```bash
 # Clone the repository
@@ -158,11 +158,14 @@ cd GitLeaf
 # Install dependencies
 npm install
 
-# Start development server
+# Link GitLeaf CLI globally (allows typing `gitleaf` anywhere in terminal)
+npm link
+
+# Start development engine & Web IDE
 npm run dev
 ```
 
-The application will be available at `http://localhost:5173`.
+The Web IDE will be available at `http://localhost:5173`. You can also run `gitleaf help` anywhere in your terminal.
 
 ---
 
