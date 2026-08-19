@@ -97,6 +97,9 @@ $ gitleaf help
 $ gitleaf init "My Research Paper" ieee-conference
 # (Templates: ieee-conference, acm-sigconf, springer-nature, article-simple, blank)
 
+# Generate a co-author invite token & link
+$ gitleaf share
+
 # Join a shared paper from a co-author and mirror locally to disk
 $ gitleaf join <INVITE_TOKEN> "Your Name"
 

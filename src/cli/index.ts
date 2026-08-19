@@ -1,6 +1,7 @@
 import { ProjectManager } from '../server/fs/manager.js';
 import { LatexCompiler } from '../server/compiler/runner.js';
 import { HistoryTracker } from '../server/git/history.js';
+import { InviteManager } from '../server/sync/invite.js';
 import { printCliBanner, ANSI } from './banner.js';
 import { detectSystemTeX } from './system.js';
 import { DEFAULT_CLIENT_PORT, DEFAULT_SERVER_PORT } from '../shared/constants.js';
@@ -11,6 +12,7 @@ const command = args[0] || 'help';
 const projectManager = new ProjectManager();
 const compiler = new LatexCompiler();
 const historyTracker = new HistoryTracker();
+const inviteManager = new InviteManager(projectManager);
 
 function printHelp() {
   const { green, orange, dim, white, bold, reset, cyan } = ANSI;
@@ -19,33 +21,35 @@ function printHelp() {
 ${bold}${white}GitLeaf CLI v0.1.0${reset} ${dim}──${reset} ${green}Local-First Collaborative LaTeX Platform${reset}
 
 ${bold}USAGE:${reset}
-  ${cyan}npm run cli -- <command> [arguments]${reset}
   ${cyan}gitleaf <command> [arguments]${reset}
+  ${cyan}npm run cli -- <command> [arguments]${reset}
 
-${bold}COLLABORATION & SYNC:${reset}
-  ${green}join${reset}    ${white}<token> [name]${reset}     Join a shared paper from co-author & mirror locally to disk
-  ${green}pull${reset}    ${white}[project]${reset}          Pull and synchronize latest co-author edits directly to disk
-  ${green}history${reset} ${white}[project]${reset}          Show Git commit timeline, author logs, and revision checkpoints
+${bold}COLLABORATION & SHARING:${reset}
+  ${green}share, invite${reset}   ${white}[project]${reset}          Generate a pairing invite token & link for co-authors
+  ${green}join${reset}            ${white}<token> [name]${reset}     Join a shared paper from co-author & mirror locally to disk
+  ${green}pull, sync${reset}      ${white}[project]${reset}          Pull and synchronize latest co-author edits directly to disk
+  ${green}history, log${reset}    ${white}[project]${reset}          Show Git commit timeline, author logs, and revision checkpoints
 
 ${bold}LATEX COMPILATION:${reset}
-  ${green}compile${reset} ${white}[project]${reset}          Compile LaTeX project to PDF using Tectonic / TeX Live
+  ${green}compile${reset}         ${white}[project]${reset}          Compile LaTeX project to PDF using Tectonic / TeX Live (< 600ms)
 
 ${bold}PROJECT MANAGEMENT:${reset}
-  ${green}init${reset}    ${white}<name> [template]${reset}  Create a new local LaTeX paper
-                         ${dim}Templates: ieee-conference, acm-sigconf, springer-nature, article-simple, blank${reset}
-  ${green}list${reset}                     List all local projects and disk paths
-  ${green}open${reset}                     Display local server status, ports, and Web UI URLs
+  ${green}init${reset}            ${white}<name> [template]${reset}  Create a new local LaTeX paper
+                                 ${dim}Templates: ieee-conference, acm-sigconf, springer-nature, article-simple, blank${reset}
+  ${green}list${reset}                             List all local projects and disk paths
+  ${green}open${reset}                             Display local server status, ports, and Web UI URLs
 
 ${bold}INFO & DIAGNOSTICS:${reset}
-  ${green}status${reset}                   Show local LaTeX compiler status, CRDT mesh, and port diagnostics
-  ${green}help, -h, --help${reset}         Show this help reference guide
-  ${green}version, -v${reset}              Show GitLeaf version
+  ${green}status${reset}                           Show local LaTeX compiler status, CRDT mesh, and port diagnostics
+  ${green}help, -h, --help${reset}                 Show this help reference guide
+  ${green}version, -v${reset}                      Show GitLeaf version
 
 ${bold}EXAMPLES:${reset}
-  ${dim}$${reset} npm run cli -- join gitleaf-k9a2bc1f "Alice Turing"
-  ${dim}$${reset} npm run cli -- compile "DNN-LatexWork"
-  ${dim}$${reset} npm run cli -- history
-  ${dim}$${reset} npm run cli -- pull
+  ${dim}$${reset} gitleaf share "DNN-LatexWork"
+  ${dim}$${reset} gitleaf join gitleaf-k9a2bc1f "Alice Turing"
+  ${dim}$${reset} gitleaf compile
+  ${dim}$${reset} gitleaf history
+  ${dim}$${reset} gitleaf pull
 `);
 }
 
@@ -78,6 +82,55 @@ async function main() {
         compiler: tex.description,
         collaborators: 1,
       });
+      break;
+    }
+
+    case 'share':
+    case 'invite': {
+      const projects = projectManager.listProjects();
+      const targetName = args[1];
+      const target = targetName
+        ? projects.find((p) => p.name.toLowerCase().includes(targetName.toLowerCase()) || p.id === targetName)
+        : projects[0];
+
+      if (!target) {
+        console.log(`\n${orange}No project found to share.${reset}\n`);
+        return;
+      }
+
+      let inviteToken = '';
+      try {
+        const res = await fetch(`http://127.0.0.1:${DEFAULT_SERVER_PORT}/api/projects/${target.id}/invite`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'editor' }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          inviteToken = data.token;
+        }
+      } catch {}
+
+      if (!inviteToken) {
+        const invite = inviteManager.createInvite(target.id, 'editor');
+        inviteToken = invite.token;
+      }
+
+      console.log(`
+╭─────────────────────────────────────────────────────────────────────────────╮
+│  ${bold}${green}GitLeaf Co-Author Invite Token${reset}                                         │
+│                                                                             │
+│  ${dim}Project Name${reset}  : ${white}${target.name}${reset}
+│  ${dim}Access Role${reset}   : ${green}Editor (Unlimited 0$ Co-Author)${reset}
+│  ${dim}Invite Token${reset}  : ${bold}${cyan}${inviteToken}${reset}
+│                                                                             │
+│  ${bold}To Join via Web UI:${reset}
+│  Paste the token into the top bar at ${white}http://localhost:${DEFAULT_CLIENT_PORT}${reset}
+│                                                                             │
+│  ${bold}To Join via CLI:${reset}
+│  ${cyan}gitleaf join ${inviteToken} "Co-Author Name"${reset}
+╰─────────────────────────────────────────────────────────────────────────────╯
+`);
       break;
     }
 
