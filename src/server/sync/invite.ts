@@ -148,13 +148,14 @@ export class InviteManager {
     let targetIp: string | null = null;
 
     if (clean.startsWith('gl-')) {
-      const parts = clean.slice(3).split('-');
-      if (parts.length === 2) {
-        // [ipCode, projectId]
-        targetIp = codeToIp(parts[0]);
-        targetProjectId = parts[1];
-      } else if (parts.length === 1) {
-        targetProjectId = parts[0];
+      const rest = clean.slice(3);
+      const dashIdx = rest.indexOf('-');
+      if (dashIdx !== -1) {
+        const ipCode = rest.slice(0, dashIdx);
+        targetProjectId = rest.slice(dashIdx + 1);
+        targetIp = codeToIp(ipCode);
+      } else {
+        targetProjectId = rest;
       }
     }
 
