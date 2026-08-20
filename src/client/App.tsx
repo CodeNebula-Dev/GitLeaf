@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar.js';
 import { FileTree } from './components/FileTree.js';
 import { MonacoEditor } from './components/MonacoEditor.js';
@@ -16,10 +16,7 @@ import { ProjectMetadata } from '../shared/types.js';
 
 export const App: React.FC = () => {
   const { user, saveUser, isLoggedIn } = useUser();
-  const [viewMode, setViewMode] = useState<'dashboard' | 'workspace'>(() => {
-    // If user is already set, start at dashboard; otherwise dashboard after profile
-    return 'dashboard';
-  });
+  const [viewMode, setViewMode] = useState<'dashboard' | 'workspace'>('dashboard');
 
   const {
     projects,
@@ -42,6 +39,7 @@ export const App: React.FC = () => {
     createFile,
     deleteFile,
     createProject,
+    deleteProject,
     jumpToLine,
   } = useProject();
 
@@ -50,16 +48,42 @@ export const App: React.FC = () => {
   const [templatesModalOpen, setTemplatesModalOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
 
+  // Auto-join if user arrived via share link (?invite=... or ?join=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const inviteToken = params.get('invite') || params.get('join');
+    if (inviteToken) {
+      const joinFromUrl = async () => {
+        try {
+          const res = await fetch('/api/invite/join', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              token: inviteToken,
+              collaboratorName: user?.name || 'Co-Author',
+            }),
+          });
+          const data = await res.json();
+          if (res.ok && data.project) {
+            setCurrentProject(data.project);
+            setViewMode('workspace');
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        } catch (err) {
+          console.error('Failed to auto-join from URL:', err);
+        }
+      };
+      joinFromUrl();
+    }
+  }, [user?.name]);
+
   const handleOpenProjectFromDashboard = (proj: ProjectMetadata) => {
     setCurrentProject(proj);
     setViewMode('workspace');
   };
 
   const handleDeleteProject = async (projectId: string) => {
-    // Refresh projects list after deletion
-    try {
-      const res = await fetch(`/api/projects/${projectId}/files`, { method: 'DELETE' });
-    } catch {}
+    await deleteProject(projectId);
   };
 
   return (
@@ -105,12 +129,14 @@ export const App: React.FC = () => {
               onDeleteFile={deleteFile}
             />
 
-            {/* Center: Monaco LaTeX Editor */}
+            {/* Center: Monaco LaTeX Editor with Live CRDT sync */}
             <div className="flex-1 flex flex-col h-full min-w-[320px] overflow-hidden border-r border-dark-border">
               <MonacoEditor
+                projectId={currentProject?.id}
                 content={activeFileContent}
                 onChange={handleContentChange}
                 filePath={activeFilePath}
+                user={user}
                 onCompile={compile}
                 onCursorChange={setCursorPosition}
                 targetJumpLine={targetJumpLine}

@@ -168,6 +168,16 @@ export class ProjectManager {
     }
   }
 
+  public deleteProject(projectIdOrSlug: string): boolean {
+    const project = this.getProject(projectIdOrSlug);
+    if (!project) return false;
+    if (fs.existsSync(project.rootPath)) {
+      fs.rmSync(project.rootPath, { recursive: true, force: true });
+      return true;
+    }
+    return false;
+  }
+
   private synthesizeMetadata(folderName: string, projPath: string): ProjectMetadata {
     return {
       id: folderName,

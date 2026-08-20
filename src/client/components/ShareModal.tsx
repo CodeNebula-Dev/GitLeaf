@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Copy, Check, Mail, Users, Shield, Link, Key } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Copy, Check, Users, Shield, Link, Key, Download, PackageCheck, Sparkles } from 'lucide-react';
 import { ProjectMetadata } from '../../shared/types.js';
 
 interface ShareModalProps {
@@ -9,10 +9,17 @@ interface ShareModalProps {
 }
 
 export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project }) => {
-  const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteToken, setInviteToken] = useState<string>('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && project && !inviteToken) {
+      generateInvite();
+    }
+  }, [isOpen, project]);
 
   if (!isOpen || !project) return null;
 
@@ -35,80 +42,103 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
     }
   };
 
-  const inviteUrl = inviteToken
-    ? `${window.location.origin}?invite=${inviteToken}`
-    : `${window.location.origin}?join=${project.id}`;
+  const codeToShow = inviteToken || `gl-${project.id.slice(0, 6)}`;
+  const inviteUrl = `${window.location.origin}?join=${codeToShow}`;
 
-  const handleCopy = () => {
+  const handleCopyLink = () => {
     navigator.clipboard.writeText(inviteUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(codeToShow);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const handleDownloadBundle = () => {
+    window.open(`/api/projects/${project.id}/bundle`, '_blank');
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md glass-dropdown rounded-xl border border-dark-border overflow-hidden animate-in fade-in zoom-in duration-150">
+      <div className="w-full max-w-lg glass-dropdown rounded-2xl border border-dark-border overflow-hidden animate-in fade-in zoom-in duration-150">
         {/* Header */}
-        <div className="px-5 py-4 border-b border-dark-border flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-dark-border flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <Users className="w-5 h-5 text-leaf-400" />
-            <h3 className="font-semibold text-white text-base">Share & Collaborate</h3>
+            <div className="w-8 h-8 rounded-lg bg-leaf-500/10 border border-leaf-500/30 flex items-center justify-center text-leaf-400">
+              <Users className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-white text-sm">Collaborate & Share Paper</h3>
+              <p className="text-[11px] text-dark-muted font-mono">{project.name}</p>
+            </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-md hover:bg-dark-hover text-dark-muted hover:text-white"
+            className="p-1.5 rounded-lg hover:bg-dark-hover text-dark-muted hover:text-white transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-5 space-y-4">
-          <div className="bg-leaf-500/10 border border-leaf-500/30 rounded-lg p-3 flex items-start space-x-2.5 text-xs text-leaf-300">
-            <Shield className="w-4 h-4 text-leaf-400 shrink-0 mt-0.5" />
-            <p leading-relaxed>
-              <strong>100% Free & Unlimited Co-Authors:</strong> Both laptops sync project folders in real-time with full version history and zero cloud paywalls.
+        <div className="p-6 space-y-5">
+          {/* Method 1: Compact 6-Character Pairing Code */}
+          <div className="glass-panel p-4 rounded-xl border border-leaf-500/30 bg-leaf-500/5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono font-semibold uppercase text-leaf-400 flex items-center space-x-1.5">
+                <Key className="w-3.5 h-3.5" />
+                <span>Pairing Code (Ultra Compact)</span>
+              </span>
+              <span className="text-[10px] font-mono text-dark-muted">Instant LAN Sync</span>
+            </div>
+
+            <div className="flex items-center justify-between bg-dark-bg/90 border border-dark-border rounded-lg px-3.5 py-2.5">
+              <span className="font-mono text-base font-bold text-leaf-300 tracking-wider">
+                {codeToShow}
+              </span>
+              <button
+                onClick={handleCopyCode}
+                className="px-3 py-1.5 rounded-md bg-leaf-500/20 hover:bg-leaf-500/30 text-leaf-300 text-xs font-mono font-medium border border-leaf-500/40 flex items-center space-x-1.5 transition-all"
+              >
+                {copiedCode ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-leaf-400" />
+                    <span>Copied Code</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy Code</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <p className="text-[11px] text-dark-muted leading-relaxed">
+              Your co-author can simply paste this short code on their GitLeaf dashboard to immediately join and sync all files.
             </p>
           </div>
 
-          {/* Email Invite Box */}
+          {/* Method 2: Share Link */}
           <div className="space-y-1.5">
-            <label className="text-xs font-mono text-dark-muted uppercase">Invite via Email / Peer Token</label>
-            <div className="flex space-x-2">
-              <input
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="coauthor@university.edu"
-                className="flex-1 bg-dark-bg border border-dark-border rounded-lg px-3 py-2 text-xs text-white placeholder-dark-muted focus:outline-none focus:border-leaf-500 font-mono"
-              />
-              <button
-                onClick={generateInvite}
-                disabled={loading}
-                className="px-3 py-2 rounded-lg bg-leaf-500 hover:bg-leaf-600 active:bg-leaf-700 text-white font-medium text-xs flex items-center space-x-1 transition-colors"
-              >
-                <Key className="w-3.5 h-3.5" />
-                <span>Pair</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Share Link */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-mono text-dark-muted uppercase">Live Collaboration Link</label>
+            <label className="text-xs font-mono text-dark-muted uppercase flex items-center space-x-1">
+              <Link className="w-3.5 h-3.5 text-leaf-400" />
+              <span>1-Click Live Collaboration Link</span>
+            </label>
             <div className="flex items-center space-x-2 bg-dark-bg border border-dark-border rounded-lg p-1.5">
-              <Link className="w-4 h-4 text-dark-muted ml-1.5 shrink-0" />
               <input
                 type="text"
                 readOnly
                 value={inviteUrl}
-                className="flex-1 bg-transparent text-xs text-dark-text font-mono truncate focus:outline-none"
+                className="flex-1 bg-transparent text-xs text-dark-text font-mono truncate px-2 focus:outline-none"
               />
               <button
-                onClick={handleCopy}
+                onClick={handleCopyLink}
                 className="px-3 py-1.5 rounded-md bg-dark-hover hover:bg-dark-border text-xs font-medium text-white flex items-center space-x-1 transition-colors shrink-0"
               >
-                {copied ? (
+                {copiedLink ? (
                   <>
                     <Check className="w-3.5 h-3.5 text-leaf-400" />
                     <span className="text-leaf-400">Copied</span>
@@ -116,21 +146,41 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
                 ) : (
                   <>
                     <Copy className="w-3.5 h-3.5" />
-                    <span>Copy</span>
+                    <span>Copy Link</span>
                   </>
                 )}
               </button>
             </div>
           </div>
 
+          {/* Method 3: Offline GitLeaf Bundle Export */}
+          <div className="p-3.5 rounded-xl bg-dark-bg/60 border border-dark-border flex items-center justify-between">
+            <div className="space-y-0.5">
+              <div className="text-xs font-medium text-white flex items-center space-x-1.5">
+                <PackageCheck className="w-4 h-4 text-leaf-400" />
+                <span>Export Portable GitLeaf Bundle</span>
+              </div>
+              <p className="text-[11px] text-dark-muted font-mono">
+                Downloads full compressed paper (.gitleaf) with all files & Git history
+              </p>
+            </div>
+            <button
+              onClick={handleDownloadBundle}
+              className="px-3 py-1.5 rounded-lg bg-dark-surface hover:bg-dark-hover text-leaf-400 border border-dark-border text-xs font-mono font-medium flex items-center space-x-1.5 shrink-0 transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>.gitleaf</span>
+            </button>
+          </div>
+
           {/* Collaborators List */}
-          <div className="space-y-2 pt-2 border-t border-dark-border">
-            <span className="text-xs font-mono text-dark-muted uppercase">Active Co-Authors</span>
-            <div className="space-y-1.5">
+          <div className="space-y-2 pt-3 border-t border-dark-border">
+            <span className="text-xs font-mono text-dark-muted uppercase">Active Co-Authors ({project.collaborators.length})</span>
+            <div className="space-y-1.5 max-h-32 overflow-y-auto">
               {project.collaborators.map((c) => (
                 <div
                   key={c.id}
-                  className="flex items-center justify-between p-2 rounded-lg bg-dark-bg/60 border border-dark-border text-xs"
+                  className="flex items-center justify-between p-2 rounded-lg bg-dark-bg/40 border border-dark-border text-xs"
                 >
                   <div className="flex items-center space-x-2">
                     <div

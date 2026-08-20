@@ -49,3 +49,28 @@
 .pulse-indicator {
   animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+/* Yjs Monaco Collaborative Cursor & Selection Styles */
+.yRemoteSelection {
+  background-color: rgba(52, 211, 153, 0.25);
+  position: absolute;
+  pointer-events: none;
+  border-radius: 2px;
+}
+
+.yRemoteSelectionHead {
+  position: absolute;
+  border-left: 2px solid #34d399;
+  height: 100%;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.yRemoteSelectionHead::after {
+  position: absolute;
+  content: ' ';
+  border: 3px solid #34d399;
+  border-radius: 50%;
+  left: -4px;
+  top: -4px;
+}

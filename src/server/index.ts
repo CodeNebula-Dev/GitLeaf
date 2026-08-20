@@ -3,6 +3,7 @@ import cors from 'cors';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
+import zlib from 'zlib';
 import { WebSocketServer } from 'ws';
 import { ProjectManager } from './fs/manager.js';
 import { LatexCompiler } from './compiler/runner.js';
@@ -18,7 +19,18 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (request, socket, head) => {
+  const pathname = request.url ? new URL(request.url, `http://${request.headers.host || 'localhost'}`).pathname : '';
+  if (pathname.startsWith('/ws')) {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  } else {
+    socket.destroy();
+  }
+});
 
 const projectManager = new ProjectManager();
 const latexCompiler = new LatexCompiler();
@@ -52,6 +64,14 @@ app.post('/api/projects', (req, res) => {
   }
   const project = projectManager.createProject(name, template);
   res.json(project);
+});
+
+app.delete('/api/projects/:id', (req, res) => {
+  const success = projectManager.deleteProject(req.params.id);
+  if (!success) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+  res.json({ success: true, message: 'Project deleted from local disk' });
 });
 
 // 3. Project Detail & Files (Includes existing PDF check)
@@ -215,6 +235,90 @@ app.get('/api/projects/:id/export', (req, res) => {
   res.json({ project, files: filesMap, snapshots: snapshotsMap });
 });
 
+// Download compressed portable .gitleaf bundle
+app.get('/api/projects/:id/bundle', (req, res) => {
+  const project = projectManager.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  const files = projectManager.getProjectFiles(project.rootPath);
+  const filesMap: Record<string, string> = {};
+  for (const f of files) {
+    if (f.type === 'file') {
+      try {
+        filesMap[f.path] = projectManager.readFile(project.rootPath, f.path);
+      } catch {}
+    }
+  }
+
+  const snapshots = historyTracker.listSnapshots(project.rootPath);
+  const snapshotsMap: Record<string, any> = {};
+  for (const s of snapshots) {
+    const detail = historyTracker.getSnapshot(project.rootPath, s.id);
+    if (detail) snapshotsMap[`${s.id}.json`] = detail;
+  }
+
+  const bundleData = {
+    gitleafVersion: '1.0',
+    exportedAt: Date.now(),
+    project: {
+      name: project.name,
+      mainFile: project.mainFile,
+      engine: project.engine,
+    },
+    files: filesMap,
+    snapshots: snapshotsMap,
+  };
+
+  const jsonStr = JSON.stringify(bundleData);
+  const compressed = zlib.gzipSync(Buffer.from(jsonStr, 'utf-8'));
+  const safeFilename = project.name.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}.gitleaf"`);
+  res.send(compressed);
+});
+
+// Import a .gitleaf bundle
+app.post('/api/projects/import', (req, res) => {
+  try {
+    let bundleData = req.body;
+
+    if (bundleData.compressed) {
+      const buffer = Buffer.from(bundleData.compressed, 'base64');
+      const decompressed = zlib.gunzipSync(buffer).toString('utf-8');
+      bundleData = JSON.parse(decompressed);
+    }
+
+    if (!bundleData.files || !bundleData.project) {
+      return res.status(400).json({ error: 'Invalid GitLeaf bundle format' });
+    }
+
+    const projectName = bundleData.project.name || 'Imported Paper';
+    const newProject = projectManager.createProject(projectName, 'blank');
+
+    for (const [filePath, content] of Object.entries(bundleData.files)) {
+      projectManager.writeFile(newProject.rootPath, filePath, content as string);
+    }
+
+    if (bundleData.snapshots) {
+      const historyDir = path.join(newProject.rootPath, '.gitleaf_history');
+      if (!fs.existsSync(historyDir)) fs.mkdirSync(historyDir, { recursive: true });
+      for (const [snapFile, snapDetail] of Object.entries(bundleData.snapshots)) {
+        fs.writeFileSync(path.join(historyDir, snapFile), JSON.stringify(snapDetail, null, 2), 'utf-8');
+      }
+    }
+
+    newProject.mainFile = bundleData.project.mainFile || 'main.tex';
+    newProject.engine = bundleData.project.engine || 'pdflatex';
+    const metaPath = path.join(newProject.rootPath, '.gitleaf.json');
+    fs.writeFileSync(metaPath, JSON.stringify(newProject, null, 2), 'utf-8');
+
+    res.json({ success: true, project: newProject });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to import bundle: ' + err.message });
+  }
+});
+
 // 5. Invitations & Sharing
 app.post('/api/projects/:id/invite', (req, res) => {
   const { role, email } = req.body;
@@ -226,13 +330,19 @@ app.post('/api/projects/:id/invite', (req, res) => {
   }
 });
 
+app.get('/api/invite/:code', (req, res) => {
+  const invite = inviteManager.getInvite(req.params.code);
+  if (!invite) return res.status(404).json({ error: 'Invite not found or expired' });
+  res.json(invite);
+});
+
 app.post('/api/invite/join', async (req, res) => {
-  const { token, collaboratorName } = req.body;
+  const { token, collaboratorName, host } = req.body;
   if (!token || !collaboratorName) {
     return res.status(400).json({ error: 'Token and Name are required' });
   }
   try {
-    const project = await inviteManager.acceptInviteAsync(token, collaboratorName);
+    const project = await inviteManager.acceptInviteAsync(token, collaboratorName, host);
     res.json({ success: true, project });
   } catch (err: any) {
     res.status(400).json({ error: err.message });

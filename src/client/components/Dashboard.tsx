@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Plus,
   Search,
@@ -15,6 +15,8 @@ import {
   User,
   Key,
   ArrowRight,
+  Upload,
+  Sparkles,
 } from 'lucide-react';
 import { ProjectMetadata } from '../../shared/types.js';
 import { UserProfile } from '../hooks/useUser.js';
@@ -40,6 +42,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [joinToken, setJoinToken] = useState('');
   const [joinLoading, setJoinLoading] = useState(false);
   const [joinError, setJoinError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredProjects = projects.filter((p) =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -47,14 +51,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!joinToken.trim()) return;
+    let token = joinToken.trim();
+    if (!token) return;
+
+    // Handle full invite URLs if pasted directly
+    if (token.includes('invite=')) {
+      token = token.split('invite=')[1].split('&')[0];
+    } else if (token.includes('join=')) {
+      token = token.split('join=')[1].split('&')[0];
+    }
+
     setJoinLoading(true);
     setJoinError('');
     try {
       const res = await fetch('/api/invite/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: joinToken.trim(), collaboratorName: user?.name || 'Co-Author' }),
+        body: JSON.stringify({ token, collaboratorName: user?.name || 'Co-Author' }),
       });
       const data = await res.json();
       if (res.ok && data.project) {
@@ -66,6 +79,40 @@ export const Dashboard: React.FC<DashboardProps> = ({
       setJoinError(err.message || 'Connection error');
     } finally {
       setJoinLoading(false);
+    }
+  };
+
+  const handleImportBundle = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    setJoinError('');
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let base64 = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        base64 += String.fromCharCode(bytes[i]);
+      }
+      const b64Str = btoa(base64);
+
+      const res = await fetch('/api/projects/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ compressed: b64Str }),
+      });
+      const data = await res.json();
+      if (res.ok && data.project) {
+        onOpenProject(data.project);
+      } else {
+        setJoinError(data.error || 'Failed to import .gitleaf bundle');
+      }
+    } catch (err: any) {
+      setJoinError('Import failed: ' + (err.message || 'Invalid bundle file'));
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -82,7 +129,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className="flex items-center space-x-2">
               <span className="font-bold text-white tracking-wide font-mono text-base">GitLeaf</span>
               <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-leaf-500/10 text-leaf-400 border border-leaf-500/20 font-semibold">
-                Local-First
+                Local-First VCS
               </span>
             </div>
             <span className="text-[11px] text-dark-muted hidden sm:block">
@@ -93,6 +140,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         {/* Right User & Actions */}
         <div className="flex items-center space-x-3">
+          {/* Import Paper Button */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImportBundle}
+            accept=".gitleaf,.json"
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="flex items-center space-x-1.5 px-3.5 py-2 rounded-lg bg-dark-hover hover:bg-dark-border text-leaf-300 font-medium text-xs border border-dark-border transition-colors font-mono disabled:opacity-50"
+            title="Import a .gitleaf portable paper bundle"
+          >
+            <Upload className="w-3.5 h-3.5 text-leaf-400" />
+            <span>{importing ? 'Importing...' : 'Import .gitleaf'}</span>
+          </button>
+
+          {/* New Project Button */}
           <button
             onClick={onNewProject}
             className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-leaf-500 hover:bg-leaf-600 active:bg-leaf-700 text-white font-medium text-xs shadow-md shadow-leaf-500/20 transition-all font-mono"
@@ -127,7 +193,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="max-w-2xl space-y-2">
             <h1 className="text-2xl font-bold text-white tracking-tight">Your Local LaTeX Papers</h1>
             <p className="text-sm text-dark-muted leading-relaxed">
-              Every document is stored directly on your laptop's disk with real-time multi-author CRDT sync, instant local compilation, and Git version control. No subscriptions. No author limits.
+              Every document is stored directly on your laptop's disk with real-time multi-author CRDT sync, instant local compilation, and GitLeaf version control. No subscriptions. No author limits.
             </p>
           </div>
 
@@ -138,7 +204,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <div className="flex items-center space-x-2 text-dark-text">
               <Users className="w-4 h-4 text-leaf-400" />
-              <span>Unlimited Co-Authors</span>
+              <span>Short Pairing Codes</span>
             </div>
             <div className="flex items-center space-x-2 text-dark-text">
               <ShieldCheck className="w-4 h-4 text-leaf-400" />
@@ -171,8 +237,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   setJoinToken(e.target.value);
                   setJoinError('');
                 }}
-                placeholder="Paste Invite Token / Code"
-                className="bg-transparent text-xs text-white placeholder-dark-muted focus:outline-none font-mono w-48"
+                placeholder="Paste Pairing Code (gl-xxxxxx)"
+                className="bg-transparent text-xs text-white placeholder-dark-muted focus:outline-none font-mono w-52"
               />
             </div>
             <button
@@ -180,7 +246,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               disabled={joinLoading || !joinToken.trim()}
               className="px-3 py-1.5 rounded-lg bg-dark-hover hover:bg-dark-border text-xs font-medium text-leaf-400 border border-dark-border flex items-center space-x-1 disabled:opacity-50 font-mono"
             >
-              <span>Join Paper</span>
+              <span>{joinLoading ? 'Joining...' : 'Join Paper'}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </form>
@@ -203,7 +269,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <BookOpen className="w-10 h-10 text-dark-muted mx-auto" />
               <h3 className="text-base font-semibold text-white">No papers found</h3>
               <p className="text-xs text-dark-muted max-w-sm mx-auto">
-                {searchQuery ? 'No papers match your search query.' : 'Create your first collaborative paper or join with an invite token.'}
+                {searchQuery ? 'No papers match your search query.' : 'Create your first collaborative paper, import a .gitleaf bundle, or join with a pairing code.'}
               </p>
               <button
                 onClick={onNewProject}

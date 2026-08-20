@@ -17,6 +17,7 @@ export interface ProjectMetadata {
   updatedAt: number;
   engine: 'pdflatex' | 'xelatex' | 'lualatex' | 'tectonic' | 'wasm';
   collaborators: Collaborator[];
+  remoteHost?: string;
 }
 
 export interface Collaborator {

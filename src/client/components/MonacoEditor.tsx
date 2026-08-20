@@ -1,11 +1,18 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
+import * as Y from 'yjs';
+import { WebsocketProvider } from 'y-websocket';
+import { MonacoBinding } from 'y-monaco';
 import { CompilerDiagnostic } from '../../shared/types.js';
+import { UserProfile } from '../hooks/useUser.js';
+import { Users, Wifi, WifiOff } from 'lucide-react';
 
 interface MonacoEditorProps {
+  projectId?: string;
+  filePath: string;
   content: string;
   onChange: (value: string) => void;
-  filePath: string;
+  user: UserProfile | null;
   onCompile: () => void;
   onCursorChange: (pos: { line: number; column: number }) => void;
   targetJumpLine: number | null;
@@ -13,10 +20,18 @@ interface MonacoEditorProps {
   diagnostics?: CompilerDiagnostic[];
 }
 
+interface PeerUser {
+  id: number;
+  name: string;
+  color: string;
+}
+
 export const MonacoEditor: React.FC<MonacoEditorProps> = ({
+  projectId,
+  filePath,
   content,
   onChange,
-  filePath,
+  user,
   onCompile,
   onCursorChange,
   targetJumpLine,
@@ -25,6 +40,12 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
 }) => {
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
+  const [syncStatus, setSyncStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connecting');
+  const [activePeers, setActivePeers] = useState<PeerUser[]>([]);
+
+  const bindingRef = useRef<MonacoBinding | null>(null);
+  const providerRef = useRef<WebsocketProvider | null>(null);
+  const ydocRef = useRef<Y.Doc | null>(null);
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -228,10 +249,120 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     });
 
     // Track Cursor Position
-    editor.onDidChangeCursorPosition((e) => {
+    editor.onDidChangeCursorPosition((e: any) => {
       onCursorChange({ line: e.position.lineNumber, column: e.position.column });
     });
   };
+
+  // Real-Time Yjs WebSocket Collaboration Setup
+  useEffect(() => {
+    if (!editorRef.current || !projectId || !filePath) return;
+
+    // Clean up previous instance
+    if (bindingRef.current) {
+      bindingRef.current.destroy();
+      bindingRef.current = null;
+    }
+    if (providerRef.current) {
+      providerRef.current.destroy();
+      providerRef.current = null;
+    }
+    if (ydocRef.current) {
+      ydocRef.current.destroy();
+      ydocRef.current = null;
+    }
+
+    const ydoc = new Y.Doc();
+    ydocRef.current = ydoc;
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const roomName = `${projectId}:${filePath}`;
+
+    const provider = new WebsocketProvider(wsUrl, roomName, ydoc, { connect: true });
+    providerRef.current = provider;
+
+    provider.on('status', (event: { status: 'connected' | 'connecting' | 'disconnected' }) => {
+      setSyncStatus(event.status);
+    });
+
+    // Configure user awareness for live collaborator cursors
+    provider.awareness.setLocalStateField('user', {
+      name: user?.name || 'Co-Author',
+      color: user?.color || '#10B981',
+    });
+
+    const updatePeers = () => {
+      const states = provider.awareness.getStates();
+      const peers: PeerUser[] = [];
+      states.forEach((state: any, clientID: number) => {
+        if (state.user && clientID !== ydoc.clientID) {
+          peers.push({
+            id: clientID,
+            name: state.user.name || 'Co-Author',
+            color: state.user.color || '#3B82F6',
+          });
+        }
+      });
+      setActivePeers(peers);
+    };
+
+    provider.awareness.on('change', updatePeers);
+
+    const yText = ydoc.getText('monaco');
+    const initialText = content || '';
+
+    // Seed content if yText is empty
+    if (initialText && yText.length === 0) {
+      yText.insert(0, initialText);
+    }
+
+    const model = editorRef.current.getModel();
+
+    if (model) {
+      const binding = new MonacoBinding(
+        yText,
+        model,
+        new Set([editorRef.current]),
+        provider.awareness
+      );
+      bindingRef.current = binding;
+
+      // Sync changes back to React state and parent
+      yText.observe(() => {
+        const text = yText.toString();
+        if (text) {
+          onChange(text);
+        }
+      });
+    }
+
+    provider.on('sync', (isSynced: boolean) => {
+      if (isSynced) {
+        const text = yText.toString();
+        if (text) {
+          onChange(text);
+        } else if (initialText) {
+          yText.insert(0, initialText);
+        }
+      }
+    });
+
+    return () => {
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+      }
+      if (providerRef.current) {
+        providerRef.current.destroy();
+        providerRef.current = null;
+      }
+      if (ydocRef.current) {
+        ydocRef.current.destroy();
+        ydocRef.current = null;
+      }
+    };
+  }, [projectId, filePath, user?.name, user?.color]);
 
   // Jump to Line when targetJumpLine is set
   useEffect(() => {
@@ -274,13 +405,52 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
   return (
     <div className="h-full w-full flex flex-col bg-dark-bg">
-      {/* Editor Header Bar */}
+      {/* Editor Header Bar with Live Mesh Sync & Peer Badges */}
       <div className="h-9 bg-dark-surface border-b border-dark-border px-4 flex items-center justify-between select-none">
         <div className="flex items-center space-x-2">
           <span className="text-xs font-mono font-medium text-leaf-400">{filePath}</span>
+          <span className="text-dark-border">•</span>
+          {syncStatus === 'connected' ? (
+            <div className="flex items-center space-x-1 text-[11px] font-mono text-leaf-400">
+              <Wifi className="w-3 h-3 text-leaf-400" />
+              <span>Live Synced</span>
+            </div>
+          ) : syncStatus === 'connecting' ? (
+            <div className="flex items-center space-x-1 text-[11px] font-mono text-amber-400">
+              <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              <span>Connecting Mesh...</span>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-1 text-[11px] font-mono text-dark-muted">
+              <WifiOff className="w-3 h-3 text-dark-muted" />
+              <span>Offline Mode</span>
+            </div>
+          )}
         </div>
-        <div className="text-[11px] font-mono text-dark-muted">
-          LaTeX Mode • UTF-8
+
+        {/* Co-Authors Active in this File */}
+        <div className="flex items-center space-x-3">
+          {activePeers.length > 0 && (
+            <div className="flex items-center space-x-1.5 bg-dark-bg/60 border border-dark-border/80 px-2 py-0.5 rounded-full text-[11px] font-mono">
+              <Users className="w-3 h-3 text-leaf-400" />
+              <div className="flex items-center -space-x-1">
+                {activePeers.map((p) => (
+                  <div
+                    key={p.id}
+                    style={{ backgroundColor: p.color }}
+                    className="w-4 h-4 rounded-full border border-dark-surface flex items-center justify-center text-[9px] font-bold text-white"
+                    title={p.name}
+                  >
+                    {p.name.charAt(0).toUpperCase()}
+                  </div>
+                ))}
+              </div>
+              <span className="text-leaf-300 ml-1 font-semibold">{activePeers.length} editing</span>
+            </div>
+          )}
+          <div className="text-[11px] font-mono text-dark-muted hidden sm:block">
+            LaTeX Mode • UTF-8
+          </div>
         </div>
       </div>
 

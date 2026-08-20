@@ -188,7 +188,7 @@ async function main() {
 
       // Decentralized direct creation if daemon was offline
       try {
-        const project = inviteManager.acceptInvite(token, name);
+        const project = await inviteManager.acceptInviteAsync(token, name);
         console.log(`${green}✓ Successfully joined paper:${reset} ${bold}${project.name}${reset}`);
         console.log(`${dim}Local disk mirror :${reset} ${white}${project.rootPath}${reset}`);
         console.log(`${dim}Role              :${reset} ${green}Editor (Unlimited Free)${reset}`);
@@ -215,11 +215,27 @@ async function main() {
       console.log(`\n${dim}Synchronizing project:${reset} ${bold}${target.name}${reset}`);
       console.log(`${dim}Local disk path     :${reset} ${white}${target.rootPath}${reset}`);
       
-      const snapshots = historyTracker.listSnapshots(target.rootPath);
-      console.log(`${dim}Connecting to CRDT mesh at ws://127.0.0.1:${DEFAULT_SERVER_PORT}/ws...${reset}`);
+      const host = target.remoteHost || `127.0.0.1:${DEFAULT_SERVER_PORT}`;
+      console.log(`${dim}Syncing with host   :${reset} ${cyan}http://${host}${reset}`);
 
-      // Simulate handshake and pull check
-      console.log(`${green}✓ Handshake complete.${reset} State vector aligned.`);
+      try {
+        const res = await fetch(`http://${host}/api/projects/${target.id}/export`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.files) {
+            for (const [filePath, content] of Object.entries(data.files)) {
+              projectManager.writeFile(target.rootPath, filePath, content as string);
+            }
+          }
+          console.log(`${green}✓ Pulled and updated ${Object.keys(data.files || {}).length} files to disk.${reset}`);
+        }
+      } catch (err: any) {
+        console.log(`${dim}Host offline or local-only mode. Aligning CRDT mesh state...${reset}`);
+      }
+
+      const snapshots = historyTracker.listSnapshots(target.rootPath);
       if (snapshots.length > 0) {
         console.log(`${dim}Latest checkpoint   :${reset} ${cyan}#${snapshots[0].id}${reset} (${snapshots[0].message})`);
       }

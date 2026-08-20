@@ -229,7 +229,27 @@ export function useProject() {
     }
   };
 
-  // 9. Format LaTeX Code Helper
+  // 9. Delete Project
+  const deleteProject = async (projectId: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        await fetchProjects();
+        if (currentProject?.id === projectId) {
+          setCurrentProject(null);
+          setFiles([]);
+          setActiveFileContent('');
+          setCompilationResult(null);
+        }
+      }
+    } catch (err) {
+      console.error('Error deleting project:', err);
+    }
+  };
+
+  // 10. Format LaTeX Code Helper
   const formatCode = useCallback(() => {
     if (!activeFileContent) return;
     const lines = activeFileContent.split('\n');
@@ -239,7 +259,7 @@ export function useProject() {
       if (!trimmed) return '';
 
       // Decrease indent for \end{...} or \right or closing environments
-      if (trimmed.startsWith('\\end{') || trimmed.startsWith('\\right') || trimmed.startsWith('}')) {
+      if (trimmed.startsWith('\\end{') || trimmed.startsWith('\\right') || trimmed.endsWith('}')) {
         indentLevel = Math.max(0, indentLevel - 1);
       }
 
@@ -262,7 +282,7 @@ export function useProject() {
     saveContent(activeFilePath, newFormatted);
   }, [activeFileContent, activeFilePath, saveContent]);
 
-  // 10. Jump to Diagnostic
+  // 11. Jump to Diagnostic
   const jumpToLine = (file: string, line: number) => {
     if (file && file !== activeFilePath) {
       setActiveFilePath(file);
@@ -278,6 +298,7 @@ export function useProject() {
     activeFilePath,
     setActiveFilePath,
     activeFileContent,
+    setActiveFileContent,
     handleContentChange,
     compilationResult,
     isCompiling,
@@ -292,6 +313,7 @@ export function useProject() {
     createFile,
     deleteFile,
     createProject,
+    deleteProject,
     jumpToLine,
     refreshFiles: fetchFiles,
     refreshProjects: fetchProjects,
