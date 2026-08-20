@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Copy, Check, Users, Shield, Link, Key, Download, PackageCheck, Sparkles } from 'lucide-react';
+import { X, Copy, Check, Users, Link, Key, Download, PackageCheck, Sparkles, Loader2 } from 'lucide-react';
 import { ProjectMetadata } from '../../shared/types.js';
 
 interface ShareModalProps {
@@ -11,12 +11,11 @@ interface ShareModalProps {
 export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project }) => {
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteToken, setInviteToken] = useState<string>('');
+  const [shortCode, setShortCode] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (isOpen && project && !inviteToken) {
+    if (isOpen && project && !shortCode) {
       generateInvite();
     }
   }, [isOpen, project]);
@@ -29,11 +28,11 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
       const res = await fetch(`/api/projects/${project.id}/invite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: 'editor', email: inviteEmail }),
+        body: JSON.stringify({ role: 'editor' }),
       });
       if (res.ok) {
         const data = await res.json();
-        setInviteToken(data.token);
+        setShortCode(data.shortCode || data.token);
       }
     } catch (err) {
       console.error('Error generating invite:', err);
@@ -42,7 +41,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
     }
   };
 
-  const codeToShow = inviteToken || `gl-${project.id.slice(0, 6)}`;
+  const codeToShow = shortCode || `gl-${project.id.slice(0, 6)}`;
   const inviteUrl = `${window.location.origin}?join=${codeToShow}`;
 
   const handleCopyLink = () => {
@@ -85,28 +84,38 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
 
         {/* Content */}
         <div className="p-6 space-y-5">
-          {/* Method 1: Compact 6-Character Pairing Code */}
-          <div className="glass-panel p-4 rounded-xl border border-leaf-500/30 bg-leaf-500/5 space-y-2">
+          {/* Method 1: Ultra Compact 6-Character Pairing Code */}
+          <div className="glass-panel p-4 rounded-xl border border-leaf-500/40 bg-leaf-500/5 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-mono font-semibold uppercase text-leaf-400 flex items-center space-x-1.5">
                 <Key className="w-3.5 h-3.5" />
-                <span>Pairing Code (Ultra Compact)</span>
+                <span>Short Pairing Code</span>
               </span>
-              <span className="text-[10px] font-mono text-dark-muted">Instant LAN Sync</span>
+              <span className="text-[10px] font-mono text-leaf-400/80 bg-leaf-500/10 px-2 py-0.5 rounded border border-leaf-500/20">
+                Instant Peer Sync
+              </span>
             </div>
 
-            <div className="flex items-center justify-between bg-dark-bg/90 border border-dark-border rounded-lg px-3.5 py-2.5">
-              <span className="font-mono text-base font-bold text-leaf-300 tracking-wider">
-                {codeToShow}
-              </span>
+            <div className="flex items-center justify-between bg-dark-bg/90 border border-dark-border rounded-lg px-4 py-3">
+              {loading ? (
+                <div className="flex items-center space-x-2 text-dark-muted text-xs font-mono">
+                  <Loader2 className="w-4 h-4 animate-spin text-leaf-400" />
+                  <span>Generating pairing code...</span>
+                </div>
+              ) : (
+                <span className="font-mono text-xl font-bold text-white tracking-widest selection:bg-leaf-500">
+                  {codeToShow}
+                </span>
+              )}
               <button
                 onClick={handleCopyCode}
-                className="px-3 py-1.5 rounded-md bg-leaf-500/20 hover:bg-leaf-500/30 text-leaf-300 text-xs font-mono font-medium border border-leaf-500/40 flex items-center space-x-1.5 transition-all"
+                disabled={loading}
+                className="px-3.5 py-1.5 rounded-lg bg-leaf-500 hover:bg-leaf-600 active:bg-leaf-700 text-white text-xs font-mono font-medium shadow-md shadow-leaf-500/20 flex items-center space-x-1.5 transition-all disabled:opacity-50"
               >
                 {copiedCode ? (
                   <>
-                    <Check className="w-3.5 h-3.5 text-leaf-400" />
-                    <span>Copied Code</span>
+                    <Check className="w-3.5 h-3.5 text-white" />
+                    <span>Copied!</span>
                   </>
                 ) : (
                   <>
@@ -117,7 +126,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
               </button>
             </div>
             <p className="text-[11px] text-dark-muted leading-relaxed">
-              Your co-author can simply paste this short code on their GitLeaf dashboard to immediately join and sync all files.
+              Give this 6-character code to your collaborator. They simply paste it into the <strong>Join Paper</strong> box on their dashboard to instantly clone and sync.
             </p>
           </div>
 
@@ -125,7 +134,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
           <div className="space-y-1.5">
             <label className="text-xs font-mono text-dark-muted uppercase flex items-center space-x-1">
               <Link className="w-3.5 h-3.5 text-leaf-400" />
-              <span>1-Click Live Collaboration Link</span>
+              <span>Direct Join Link</span>
             </label>
             <div className="flex items-center space-x-2 bg-dark-bg border border-dark-border rounded-lg p-1.5">
               <input
@@ -136,12 +145,12 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
               />
               <button
                 onClick={handleCopyLink}
-                className="px-3 py-1.5 rounded-md bg-dark-hover hover:bg-dark-border text-xs font-medium text-white flex items-center space-x-1 transition-colors shrink-0"
+                className="px-3 py-1.5 rounded-md bg-dark-hover hover:bg-dark-border text-xs font-medium text-white flex items-center space-x-1 transition-colors shrink-0 font-mono"
               >
                 {copiedLink ? (
                   <>
                     <Check className="w-3.5 h-3.5 text-leaf-400" />
-                    <span className="text-leaf-400">Copied</span>
+                    <span className="text-leaf-400">Copied Link</span>
                   </>
                 ) : (
                   <>
@@ -153,15 +162,15 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
             </div>
           </div>
 
-          {/* Method 3: Offline GitLeaf Bundle Export */}
-          <div className="p-3.5 rounded-xl bg-dark-bg/60 border border-dark-border flex items-center justify-between">
+          {/* Method 3: Portable GitLeaf Bundle */}
+          <div className="p-3 rounded-xl bg-dark-bg/60 border border-dark-border flex items-center justify-between">
             <div className="space-y-0.5">
               <div className="text-xs font-medium text-white flex items-center space-x-1.5">
                 <PackageCheck className="w-4 h-4 text-leaf-400" />
-                <span>Export Portable GitLeaf Bundle</span>
+                <span>Offline Paper Bundle</span>
               </div>
               <p className="text-[11px] text-dark-muted font-mono">
-                Downloads full compressed paper (.gitleaf) with all files & Git history
+                Download a self-contained .gitleaf archive with all files & Git checkpoints
               </p>
             </div>
             <button
@@ -169,34 +178,8 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
               className="px-3 py-1.5 rounded-lg bg-dark-surface hover:bg-dark-hover text-leaf-400 border border-dark-border text-xs font-mono font-medium flex items-center space-x-1.5 shrink-0 transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>.gitleaf</span>
+              <span>Download .gitleaf</span>
             </button>
-          </div>
-
-          {/* Collaborators List */}
-          <div className="space-y-2 pt-3 border-t border-dark-border">
-            <span className="text-xs font-mono text-dark-muted uppercase">Active Co-Authors ({project.collaborators.length})</span>
-            <div className="space-y-1.5 max-h-32 overflow-y-auto">
-              {project.collaborators.map((c) => (
-                <div
-                  key={c.id}
-                  className="flex items-center justify-between p-2 rounded-lg bg-dark-bg/40 border border-dark-border text-xs"
-                >
-                  <div className="flex items-center space-x-2">
-                    <div
-                      style={{ backgroundColor: c.color }}
-                      className="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] text-white"
-                    >
-                      {c.name.charAt(0).toUpperCase()}
-                    </div>
-                    <span className="text-white font-medium">{c.name}</span>
-                  </div>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-leaf-500/10 text-leaf-400 border border-leaf-500/20 uppercase">
-                    {c.role}
-                  </span>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       </div>

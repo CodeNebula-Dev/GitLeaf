@@ -47,6 +47,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
   const bindingRef = useRef<MonacoBinding | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null);
+  const globalProviderRef = useRef<WebsocketProvider | null>(null);
   const ydocRef = useRef<Y.Doc | null>(null);
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
@@ -286,12 +287,34 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     const wsUrl = `${protocol}//${targetHost}/ws`;
     const roomName = `${projectId}:${filePath}`;
 
+    // 1. Local/LAN WebSocket Provider (persists edits to local filesystem)
     const provider = new WebsocketProvider(wsUrl, roomName, ydoc, { connect: true });
     providerRef.current = provider;
+
+    // 2. Global Cloud Signaling Mesh (enables cross-laptop live sync across any network/firewall)
+    let globalProvider: WebsocketProvider | null = null;
+    try {
+      const globalRoom = `gitleaf-${projectId}:${filePath}`;
+      globalProvider = new WebsocketProvider('wss://demos.yjs.dev/ws', globalRoom, ydoc, { connect: true });
+      globalProviderRef.current = globalProvider;
+
+      globalProvider.awareness.setLocalStateField('user', {
+        name: user?.name || 'Co-Author',
+        color: user?.color || '#10B981',
+      });
+    } catch {}
 
     provider.on('status', (event: { status: 'connected' | 'connecting' | 'disconnected' }) => {
       setSyncStatus(event.status);
     });
+
+    if (globalProvider) {
+      globalProvider.on('status', (event: { status: 'connected' | 'connecting' | 'disconnected' }) => {
+        if (event.status === 'connected') {
+          setSyncStatus('connected');
+        }
+      });
+    }
 
     // Configure user awareness for live collaborator cursors
     provider.awareness.setLocalStateField('user', {
@@ -301,9 +324,13 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
     const updatePeers = () => {
       const states = provider.awareness.getStates();
+      const globalStates = globalProvider ? globalProvider.awareness.getStates() : new Map();
       const peers: PeerUser[] = [];
+      const seen = new Set<number>();
+
       states.forEach((state: any, clientID: number) => {
-        if (state.user && clientID !== ydoc.clientID) {
+        if (state.user && clientID !== ydoc.clientID && !seen.has(clientID)) {
+          seen.add(clientID);
           peers.push({
             id: clientID,
             name: state.user.name || 'Co-Author',
@@ -311,10 +338,25 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
           });
         }
       });
+
+      globalStates.forEach((state: any, clientID: number) => {
+        if (state.user && clientID !== ydoc.clientID && !seen.has(clientID)) {
+          seen.add(clientID);
+          peers.push({
+            id: clientID,
+            name: state.user.name || 'Co-Author',
+            color: state.user.color || '#3B82F6',
+          });
+        }
+      });
+
       setActivePeers(peers);
     };
 
     provider.awareness.on('change', updatePeers);
+    if (globalProvider) {
+      globalProvider.awareness.on('change', updatePeers);
+    }
 
     const yText = ydoc.getText('monaco');
     const initialText = content || '';
@@ -331,7 +373,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
         yText,
         model,
         new Set([editorRef.current]),
-        provider.awareness
+        globalProvider ? globalProvider.awareness : provider.awareness
       );
       bindingRef.current = binding;
 
@@ -363,6 +405,10 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
       if (providerRef.current) {
         providerRef.current.destroy();
         providerRef.current = null;
+      }
+      if (globalProviderRef.current) {
+        globalProviderRef.current.destroy();
+        globalProviderRef.current = null;
       }
       if (ydocRef.current) {
         ydocRef.current.destroy();

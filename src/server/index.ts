@@ -395,7 +395,7 @@ if (existingProjects.length === 0) {
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : DEFAULT_SERVER_PORT;
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   const texInfo = detectSystemTeX();
   printCliBanner({
     version: '0.1.0',
