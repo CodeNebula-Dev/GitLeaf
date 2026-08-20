@@ -9,6 +9,7 @@ import { Users, Wifi, WifiOff } from 'lucide-react';
 
 interface MonacoEditorProps {
   projectId?: string;
+  remoteHost?: string;
   filePath: string;
   content: string;
   onChange: (value: string) => void;
@@ -28,6 +29,7 @@ interface PeerUser {
 
 export const MonacoEditor: React.FC<MonacoEditorProps> = ({
   projectId,
+  remoteHost,
   filePath,
   content,
   onChange,
@@ -276,7 +278,12 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     ydocRef.current = ydoc;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    let targetHost = window.location.host;
+    if (remoteHost) {
+      const cleanHost = remoteHost.split(':')[0];
+      targetHost = `${cleanHost}:4411`;
+    }
+    const wsUrl = `${protocol}//${targetHost}/ws`;
     const roomName = `${projectId}:${filePath}`;
 
     const provider = new WebsocketProvider(wsUrl, roomName, ydoc, { connect: true });
