@@ -91,8 +91,9 @@ export class InviteManager {
 
     const hostIp = getLocalIp();
     const ipCode = ipToCode(hostIp);
-    // Decentralized self-routing short pairing code: gl-<ipCode>-<projectId>
-    const shortCode = `gl-${ipCode}-${project.id}`;
+    const projectKey = path.basename(project.rootPath);
+    // Decentralized self-routing short pairing code: gl-<ipCode>-<projectKey>
+    const shortCode = `gl-${ipCode}-${projectKey}`;
 
     const invite: InviteToken = {
       token: shortCode,
@@ -108,6 +109,7 @@ export class InviteManager {
 
     this.invites.set(shortCode, invite);
     this.invites.set(project.id, invite);
+    this.invites.set(projectKey, invite);
     this.savePersistedInvites();
 
     return invite;
@@ -203,10 +205,12 @@ export class InviteManager {
     const hostsToTry: string[] = [];
     if (targetIp) {
       hostsToTry.push(`${targetIp}:${DEFAULT_SERVER_PORT}`);
+      hostsToTry.push(`${targetIp}:5173`);
     }
     if (remoteHost) {
       const hostPart = remoteHost.split(':')[0];
       hostsToTry.push(`${hostPart}:${DEFAULT_SERVER_PORT}`);
+      hostsToTry.push(`${hostPart}:5173`);
       hostsToTry.push(remoteHost);
     }
     hostsToTry.push(`127.0.0.1:${DEFAULT_SERVER_PORT}`);

@@ -86,7 +86,20 @@ export class ProjectManager {
 
   public getProject(projectIdOrSlug: string): ProjectMetadata | null {
     const projects = this.listProjects();
-    return projects.find((p) => p.id === projectIdOrSlug || path.basename(p.rootPath) === projectIdOrSlug) || null;
+    const query = projectIdOrSlug.trim();
+    const queryLower = query.toLowerCase();
+
+    return (
+      projects.find(
+        (p) =>
+          p.id === query ||
+          path.basename(p.rootPath) === query ||
+          path.basename(p.rootPath).endsWith(`-${query}`) ||
+          path.basename(p.rootPath).includes(query) ||
+          p.name.toLowerCase() === queryLower ||
+          p.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-').includes(queryLower)
+      ) || null
+    );
   }
 
   public getProjectFiles(projectRoot: string): ProjectFile[] {
