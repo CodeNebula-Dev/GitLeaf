@@ -615,12 +615,6 @@ app.get('/api/projects/:id/git/sync-check', (req, res) => {
   });
 });
 
-// Auto-pull all Git-linked projects on startup
-if (GitSync.hasGit()) {
-  console.log('[GitSync] Pulling latest for all Git-linked projects...');
-  GitSync.pullAllOnStartup(projectManager.getBaseDir());
-}
-
 // Ensure a default starter project exists
 const existingProjects = projectManager.listProjects();
 if (existingProjects.length === 0) {
@@ -639,4 +633,12 @@ server.listen(PORT, '0.0.0.0', () => {
     compiler: texInfo.description,
     collaborators: 1,
   });
+
+  // Auto-pull all Git-linked projects asynchronously in the background (non-blocking)
+  if (GitSync.hasGit()) {
+    setTimeout(() => {
+      console.log('[GitSync] Pulling latest for all Git-linked projects...');
+      GitSync.pullAllOnStartup(projectManager.getBaseDir());
+    }, 500);
+  }
 });
