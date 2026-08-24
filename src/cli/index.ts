@@ -30,7 +30,7 @@ ${bold}COLLABORATION & SYNC:${reset}
   ${green}join${reset}            ${white}<code/url> [name]${reset}    Clone shared paper locally to disk & join
   ${green}push${reset}            ${white}[project] [message]${reset}  Commit & push changes to linked Git remote (GitHub)
   ${green}pull, sync${reset}      ${white}[project]${reset}          Pull latest changes from Git remote or host
-  ${green}remote${reset}          ${white}<project> <url>${reset}    Link a private GitHub repository for cross-laptop sync
+  ${green}link, remote${reset}    ${white}<project> <url>${reset}    Link a private GitHub repository for cross-laptop sync
 
 ${bold}LATEX & VERSION CONTROL:${reset}
   ${green}compile${reset}         ${white}[project]${reset}          Compile LaTeX project to PDF (< 600ms)
@@ -169,32 +169,68 @@ async function main() {
       break;
     }
 
+    case 'link':
+    case 'connect':
     case 'remote': {
       const projects = projectManager.listProjects();
-      const targetName = args[1];
-      const remoteUrl = args[2];
-
-      if (!targetName || !remoteUrl) {
-        console.log(`\n${orange}Usage:${reset} gitleaf remote <project-name> <github-repo-url>\n`);
+      if (projects.length === 0) {
+        console.log(`\n${orange}No local projects found. Create one first with: gitleaf init <name>${reset}\n`);
         return;
       }
 
-      const target = projects.find((p) => p.name.toLowerCase().includes(targetName.toLowerCase()) || p.id === targetName);
-      if (!target) {
-        console.log(`\n${orange}Project "${targetName}" not found.${reset}\n`);
+      let target = null;
+      let remoteUrl = '';
+
+      if (args.length === 2) {
+        // e.g. gitleaf link https://github.com/user/repo.git (auto-picks current/first project)
+        target = projects[0];
+        remoteUrl = args[1];
+      } else if (args.length >= 3) {
+        const targetArg = args[1];
+        remoteUrl = args[2];
+
+        const num = parseInt(targetArg, 10);
+        if (!isNaN(num) && num >= 1 && num <= projects.length) {
+          target = projects[num - 1];
+        } else {
+          target = projects.find(
+            (p) =>
+              p.name.toLowerCase().includes(targetArg.toLowerCase()) ||
+              p.id.toLowerCase().includes(targetArg.toLowerCase())
+          );
+        }
+      }
+
+      if (!remoteUrl || !target) {
+        console.log(`\n${bold}Connect a Private GitHub Repository:${reset}`);
+        console.log(`  ${cyan}gitleaf link <github-repo-url>${reset}                     ${dim}(links current project)${reset}`);
+        console.log(`  ${cyan}gitleaf link <project-name> <github-repo-url>${reset}        ${dim}(links specific project)${reset}`);
+        console.log(`\n${dim}Example:${reset} ${cyan}gitleaf link "DNN-LatexWork" https://github.com/myname/my-paper.git${reset}\n`);
         return;
       }
 
+      console.log(`\n${dim}Linking repository to:${reset} ${bold}${target.name}${reset}`);
       GitSync.initRepo(target.rootPath);
       const ok = GitSync.setRemote(target.rootPath, remoteUrl);
+
       if (ok) {
         target.gitRemote = remoteUrl;
+        const metaPath = `${target.rootPath}/.gitleaf.json`;
+        try {
+          const fs = await import('fs');
+          fs.writeFileSync(metaPath, JSON.stringify(target, null, 2), 'utf-8');
+        } catch {}
+
         GitSync.commit(target.rootPath, 'Initial GitLeaf commit');
+        console.log(`${dim}Pushing files to GitHub...${reset}`);
         const pushed = GitSync.push(target.rootPath);
-        console.log(`\n${green}✓ Linked GitHub remote:${reset} ${white}${remoteUrl}${reset}`);
-        console.log(`${dim}Initial push:${reset} ${pushed ? green + 'Success' : orange + 'Pending credentials'}${reset}\n`);
+
+        console.log(`\n${green}✓ Successfully linked GitHub remote!${reset}`);
+        console.log(`  ${dim}Remote URL:${reset} ${white}${remoteUrl}${reset}`);
+        console.log(`  ${dim}Status    :${reset} ${pushed ? green + 'Pushed to GitHub' : orange + 'Linked (Check git credentials)'}${reset}`);
+        console.log(`\n${dim}Co-authors can now clone and join with:${reset} ${cyan}gitleaf share "${target.name}"${reset}\n`);
       } else {
-        console.log(`\n${orange}Failed to set remote.${reset}\n`);
+        console.log(`\n${orange}Failed to set remote URL.${reset}\n`);
       }
       break;
     }
