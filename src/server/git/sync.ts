@@ -173,8 +173,14 @@ Thumbs.db
    * Push to remote origin. Returns true on success.
    */
   public static push(projectRoot: string): boolean {
-    if (!this.isGitRepo(projectRoot) || !this.getRemote(projectRoot)) return false;
+    if (!this.isGitRepo(projectRoot)) return false;
+    const remote = this.getRemote(projectRoot);
+    if (!remote) return false;
     try {
+      const authUrl = this.getAuthenticatedUrl(remote);
+      execSync(`git remote set-url origin "${authUrl}"`, { cwd: projectRoot, stdio: 'pipe', env: this.GIT_ENV });
+
+      // Detect current branch
       let branch = 'main';
       try {
         branch = execSync('git rev-parse --abbrev-ref HEAD', {
@@ -197,8 +203,13 @@ Thumbs.db
    * Pull latest from remote origin. Returns true on success.
    */
   public static pull(projectRoot: string): boolean {
-    if (!this.isGitRepo(projectRoot) || !this.getRemote(projectRoot)) return false;
+    if (!this.isGitRepo(projectRoot)) return false;
+    const remote = this.getRemote(projectRoot);
+    if (!remote) return false;
     try {
+      const authUrl = this.getAuthenticatedUrl(remote);
+      execSync(`git remote set-url origin "${authUrl}"`, { cwd: projectRoot, stdio: 'pipe', env: this.GIT_ENV });
+
       let branch = 'main';
       try {
         branch = execSync('git rev-parse --abbrev-ref HEAD', {
@@ -248,19 +259,22 @@ Thumbs.db
 
   /**
    * Async version of commitAndPush that runs in background (non-blocking).
+   * Works identically across Windows, Mac, and Linux.
    */
   public static commitAndPushAsync(projectRoot: string, message: string = 'GitLeaf auto-save'): void {
     if (!this.getRemote(projectRoot)) return;
 
-    try {
-      const authUrl = this.getAuthenticatedUrl(this.getRemote(projectRoot) || '');
-      const cmd = `cd "${projectRoot}" && git add -A && git diff --cached --quiet || git commit -m "${message.replace(/"/g, '\\"')}" && git push -u origin main 2>/dev/null || true`;
-      exec(cmd, { env: this.GIT_ENV, timeout: 30000 }, (err) => {
-        if (err) {
-          console.warn('Background git push failed:', err.message);
+    // Run asynchronously via Node event loop without shell dependencies
+    setTimeout(() => {
+      try {
+        const committed = this.commit(projectRoot, message);
+        if (committed) {
+          this.push(projectRoot);
         }
-      });
-    } catch {}
+      } catch (err: any) {
+        console.warn('[GitSync] Background sync notice:', err.message);
+      }
+    }, 100);
   }
 
   /**

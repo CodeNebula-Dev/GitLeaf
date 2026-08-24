@@ -13,10 +13,12 @@ import { useProject } from './hooks/useProject.js';
 import { useUser } from './hooks/useUser.js';
 import { Laptop, Cpu, Radio } from 'lucide-react';
 import { ProjectMetadata } from '../shared/types.js';
+import { PeerUser } from './components/MonacoEditor.js';
 
 export const App: React.FC = () => {
   const { user, saveUser, isLoggedIn } = useUser();
   const [viewMode, setViewMode] = useState<'dashboard' | 'workspace'>('dashboard');
+  const [activePeers, setActivePeers] = useState<PeerUser[]>([]);
 
   const {
     projects,
@@ -114,6 +116,7 @@ export const App: React.FC = () => {
             currentProject={currentProject}
             projects={projects}
             user={user}
+            activePeers={activePeers}
             onSelectProject={setCurrentProject}
             onBackToDashboard={handleBackToDashboard}
             onCompile={compile}
@@ -141,6 +144,7 @@ export const App: React.FC = () => {
             <div className="flex-1 flex flex-col h-full min-w-[320px] overflow-hidden border-r border-dark-border">
               <MonacoEditor
                 projectId={currentProject?.id}
+                gitRemote={currentProject?.gitRemote}
                 remoteHost={currentProject?.remoteHost}
                 content={activeFileContent}
                 onChange={handleContentChange}
@@ -151,6 +155,7 @@ export const App: React.FC = () => {
                 targetJumpLine={targetJumpLine}
                 onJumpComplete={() => setTargetJumpLine(null)}
                 diagnostics={compilationResult?.diagnostics || []}
+                onActivePeersChange={setActivePeers}
               />
             </div>
 

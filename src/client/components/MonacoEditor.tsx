@@ -9,6 +9,7 @@ import { Users, Wifi, WifiOff } from 'lucide-react';
 
 interface MonacoEditorProps {
   projectId?: string;
+  gitRemote?: string;
   remoteHost?: string;
   filePath: string;
   content: string;
@@ -19,9 +20,10 @@ interface MonacoEditorProps {
   targetJumpLine: number | null;
   onJumpComplete: () => void;
   diagnostics?: CompilerDiagnostic[];
+  onActivePeersChange?: (peers: PeerUser[]) => void;
 }
 
-interface PeerUser {
+export interface PeerUser {
   id: number;
   name: string;
   color: string;
@@ -29,6 +31,7 @@ interface PeerUser {
 
 export const MonacoEditor: React.FC<MonacoEditorProps> = ({
   projectId,
+  gitRemote,
   remoteHost,
   filePath,
   content,
@@ -39,6 +42,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
   targetJumpLine,
   onJumpComplete,
   diagnostics = [],
+  onActivePeersChange,
 }) => {
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
@@ -288,8 +292,13 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     providerRef.current = provider;
 
     // 2. Global Peer Relay Provider — connects co-authors across different laptops in real-time (<20ms)
-    const cleanSlug = (projectId || 'gitleaf-paper').replace(/[^a-zA-Z0-9_-]/g, '-');
-    const globalRoom = `gitleaf-collab-${cleanSlug}:${filePath}`;
+    const rawTarget = gitRemote || projectId || 'gitleaf-paper';
+    const cleanSlug = rawTarget
+      .replace(/https?:\/\/github\.com\//i, '')
+      .replace(/\.git$/i, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '-');
+    const globalRoom = `gitleaf-mesh-${cleanSlug}:${filePath}`;
     let globalProvider: WebsocketProvider | null = null;
     try {
       globalProvider = new WebsocketProvider('wss://demos.yjs.dev/ws', globalRoom, ydoc, { connect: true });
@@ -331,7 +340,9 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
       localStates.forEach(addState);
       globalStates.forEach(addState);
 
-      setActivePeers(Array.from(peersMap.values()));
+      const peerList = Array.from(peersMap.values());
+      setActivePeers(peerList);
+      onActivePeersChange?.(peerList);
     };
 
     provider.awareness.on('change', updatePeers);

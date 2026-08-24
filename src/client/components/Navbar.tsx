@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { Play, Share2, History, Plus, ChevronDown, Check, Loader2, ArrowLeft, Laptop, ShieldCheck } from 'lucide-react';
+import { Play, Share2, History, Plus, ChevronDown, Check, Loader2, ArrowLeft, Users, Circle } from 'lucide-react';
 import { ProjectMetadata } from '../../shared/types.js';
 import { UserProfile } from '../hooks/useUser.js';
+import { PeerUser } from './MonacoEditor.js';
 
 interface NavbarProps {
   currentProject: ProjectMetadata | null;
   projects: ProjectMetadata[];
   user: UserProfile | null;
+  activePeers?: PeerUser[];
   onSelectProject: (proj: ProjectMetadata) => void;
   onBackToDashboard: () => void;
   onCompile: () => void;
@@ -23,6 +25,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentProject,
   projects,
   user,
+  activePeers = [],
   onSelectProject,
   onBackToDashboard,
   onCompile,
@@ -150,34 +153,36 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Right: Collaborators, Actions & User Avatar */}
       <div className="flex items-center space-x-2">
-        {/* Collaborators Dropdown */}
-        <div className="relative">
-          <button
-            onClick={() => setDropdownOpen(false)}
-            onMouseEnter={() => {}}
-            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-dark-hover hover:bg-dark-border text-dark-text text-xs font-medium border border-dark-border transition-colors font-mono"
-            title="Project Collaborators"
-          >
-            <div className="flex -space-x-1.5 items-center">
-              <div
-                className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ring-1 ring-dark-surface"
-                style={{ backgroundColor: user?.color || '#10B981' }}
-              >
-                {user?.name?.charAt(0).toUpperCase() || 'U'}
-              </div>
-              {(currentProject?.collaborators || []).slice(0, 3).map((c, idx) => (
-                <div
-                  key={c.id || idx}
-                  className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white bg-leaf-600 ring-1 ring-dark-surface"
-                >
-                  {c.name.charAt(0).toUpperCase()}
-                </div>
-              ))}
+        {/* Live Collaborators Presence */}
+        <div className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-dark-hover/80 border border-dark-border">
+          <div className="flex -space-x-1.5 items-center">
+            {/* You */}
+            <div
+              className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ring-2 ring-dark-surface shadow-sm"
+              style={{ backgroundColor: user?.color || '#10B981' }}
+              title={`You (${user?.name || 'Author'})`}
+            >
+              {user?.name?.charAt(0).toUpperCase() || 'U'}
             </div>
-            <span className="text-[11px] text-dark-muted hidden md:inline ml-1">
-              {Math.max(1, (currentProject?.collaborators?.length || 0) + 1)} Members
-            </span>
-          </button>
+            {/* Active Live Online Peers */}
+            {activePeers.map((peer) => (
+              <div
+                key={peer.id}
+                className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ring-2 ring-emerald-500 animate-pulse shadow-sm"
+                style={{ backgroundColor: peer.color || '#3B82F6' }}
+                title={`${peer.name} (Live Online)`}
+              >
+                {peer.name.charAt(0).toUpperCase()}
+              </div>
+            ))}
+          </div>
+          <span className="text-[11px] font-mono text-dark-muted hidden lg:inline ml-1.5">
+            {activePeers.length > 0 ? (
+              <span className="text-emerald-400 font-medium">● {activePeers[0].name} online</span>
+            ) : (
+              <span>1 Author</span>
+            )}
+          </span>
         </div>
 
         <button
