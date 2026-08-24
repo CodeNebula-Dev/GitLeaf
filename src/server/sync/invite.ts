@@ -6,6 +6,7 @@ import { ProjectManager } from '../fs/manager.js';
 import { ProjectMetadata } from '../../shared/types.js';
 import { DEFAULT_SERVER_PORT } from '../../shared/constants.js';
 import { GitSync } from '../git/sync.js';
+import { GitHubService } from '../git/github.js';
 
 /**
  * Invite registry entry — stored in `.invites.json`.
@@ -140,13 +141,21 @@ export class InviteManager {
     let clean = tokenOrCode.trim();
     let gitRemoteHint: string | undefined = undefined;
     let hostHint: string | undefined = undefined;
+    let authHint: string | undefined = undefined;
 
-    // 1. Parse Full Direct URLs (e.g. http://localhost:5173/?join=gl-xxx&repo=https://github.com/...&host=192.168.x.x:4411)
+    // 0. Automatically accept any pending repository invitations for this user via GitHub API in background
+    try {
+      const gh = new GitHubService();
+      await gh.autoAcceptPendingInvitations();
+    } catch {}
+
+    // 1. Parse Full Direct URLs
     if (clean.startsWith('http://') || clean.startsWith('https://')) {
       try {
         const parsedUrl = new URL(clean);
         gitRemoteHint = parsedUrl.searchParams.get('repo') || undefined;
         hostHint = parsedUrl.searchParams.get('host') || undefined;
+        authHint = parsedUrl.searchParams.get('auth') || undefined;
         clean = parsedUrl.searchParams.get('join') || parsedUrl.searchParams.get('invite') || clean;
       } catch {}
     } else if (clean.includes('join=')) {
@@ -154,6 +163,10 @@ export class InviteManager {
       if (match) clean = match[1];
       const repoMatch = clean.match(/repo=([^&]+)/);
       if (repoMatch) gitRemoteHint = decodeURIComponent(repoMatch[1]);
+      const hostMatch = clean.match(/host=([^&]+)/);
+      if (hostMatch) hostHint = decodeURIComponent(hostMatch[1]);
+      const authMatch = clean.match(/auth=([^&]+)/);
+      if (authMatch) authHint = decodeURIComponent(authMatch[1]);
     }
 
     // 2. Direct GitHub URL or Owner/Repo Slug (e.g. "https://github.com/user/repo.git" or "user/repo" or "gl-user_repo")
@@ -166,20 +179,46 @@ export class InviteManager {
       gitRemoteHint = `https://github.com/${repoPath}.git`;
     }
 
-    // If we have a direct Git remote hint, clone it immediately!
+    // If auth token is passed in link, inject it into the remote hint
+    if (authHint && gitRemoteHint && !gitRemoteHint.includes('@')) {
+      gitRemoteHint = gitRemoteHint.replace('https://', `https://x-access-token:${authHint}@`);
+    }
+
+    // If we have a direct Git remote hint, clone it!
     if (gitRemoteHint) {
       const repoName = gitRemoteHint.split('/').pop()?.replace(/\.git$/, '') || 'shared-paper';
-      return this.cloneViaGit({
-        shortCode: clean,
-        projectId: nanoid(10),
-        projectName: repoName.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-        role: 'editor',
-        createdTime: Date.now(),
-        expiresTime: Date.now() + 30 * 24 * 60 * 60 * 1000,
-        gitRemote: gitRemoteHint,
-        hostIp: '127.0.0.1',
-        hostPort: DEFAULT_SERVER_PORT,
-      }, collaboratorName);
+      try {
+        return this.cloneViaGit({
+          shortCode: clean,
+          projectId: nanoid(10),
+          projectName: repoName.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+          role: 'editor',
+          createdTime: Date.now(),
+          expiresTime: Date.now() + 30 * 24 * 60 * 60 * 1000,
+          gitRemote: gitRemoteHint,
+          hostIp: '127.0.0.1',
+          hostPort: DEFAULT_SERVER_PORT,
+        }, collaboratorName);
+      } catch (cloneErr: any) {
+        // If git clone fails (e.g. private repo without GitHub access), fallback to host HTTP fetch
+        if (hostHint) {
+          try {
+            const dummyInvite: InviteEntry = {
+              shortCode: clean,
+              projectId: clean,
+              projectName: repoName,
+              role: 'editor',
+              createdTime: Date.now(),
+              expiresTime: Date.now() + 30 * 24 * 60 * 60 * 1000,
+              gitRemote: gitRemoteHint,
+              hostIp: hostHint.split(':')[0],
+              hostPort: parseInt(hostHint.split(':')[1] || '4411', 10),
+            };
+            return await this.fetchViaHttp(dummyInvite, collaboratorName);
+          } catch {}
+        }
+        throw cloneErr;
+      }
     }
 
     // 3. Check local registry (if joining on the same machine)

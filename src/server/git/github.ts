@@ -404,4 +404,45 @@ export class GitHubService {
       return { success: false, error: err.message };
     }
   }
+
+  /**
+   * Automatically accept any pending repository invitations for the current user
+   */
+  public async autoAcceptPendingInvitations(repoFullName?: string): Promise<boolean> {
+    const token = this.getToken();
+    if (!token) return false;
+
+    try {
+      const res = await fetch('https://api.github.com/user/repository_invitations', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'GitLeaf/1.0',
+        },
+      });
+
+      if (!res.ok) return false;
+      const invitations = await res.json();
+      if (!Array.isArray(invitations) || invitations.length === 0) return false;
+
+      for (const inv of invitations) {
+        const invRepo = inv.repository?.full_name?.toLowerCase();
+        if (!repoFullName || (invRepo && invRepo.includes(repoFullName.toLowerCase()))) {
+          await fetch(`https://api.github.com/user/repository_invitations/${inv.id}`, {
+            method: 'PATCH',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'GitLeaf/1.0',
+            },
+          });
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
