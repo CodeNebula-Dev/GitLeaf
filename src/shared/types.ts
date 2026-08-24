@@ -18,6 +18,7 @@ export interface ProjectMetadata {
   engine: 'pdflatex' | 'xelatex' | 'lualatex' | 'tectonic' | 'wasm';
   collaborators: Collaborator[];
   remoteHost?: string;
+  gitRemote?: string;
 }
 
 export interface Collaborator {

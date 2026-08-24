@@ -1,6 +1,7 @@
 import { ProjectManager } from '../server/fs/manager.js';
 import { LatexCompiler } from '../server/compiler/runner.js';
 import { HistoryTracker } from '../server/git/history.js';
+import { GitSync } from '../server/git/sync.js';
 import { InviteManager } from '../server/sync/invite.js';
 import { printCliBanner, ANSI } from './banner.js';
 import { detectSystemTeX } from './system.js';
@@ -24,32 +25,31 @@ ${bold}USAGE:${reset}
   ${cyan}gitleaf <command> [arguments]${reset}
   ${cyan}npm run cli -- <command> [arguments]${reset}
 
-${bold}COLLABORATION & SHARING:${reset}
-  ${green}share, invite${reset}   ${white}[project]${reset}          Generate a pairing invite token & link for co-authors
-  ${green}join${reset}            ${white}<token> [name]${reset}     Join a shared paper from co-author & mirror locally to disk
-  ${green}pull, sync${reset}      ${white}[project]${reset}          Pull and synchronize latest co-author edits directly to disk
-  ${green}history, log${reset}    ${white}[project]${reset}          Show Git commit timeline, author logs, and revision checkpoints
+${bold}COLLABORATION & SYNC:${reset}
+  ${green}share, invite${reset}   ${white}[project]${reset}          Generate a 6-character pairing code for co-authors
+  ${green}join${reset}            ${white}<code/url> [name]${reset}    Clone shared paper locally to disk & join
+  ${green}push${reset}            ${white}[project] [message]${reset}  Commit & push changes to linked Git remote (GitHub)
+  ${green}pull, sync${reset}      ${white}[project]${reset}          Pull latest changes from Git remote or host
+  ${green}remote${reset}          ${white}<project> <url>${reset}    Link a private GitHub repository for cross-laptop sync
 
-${bold}LATEX COMPILATION:${reset}
-  ${green}compile${reset}         ${white}[project]${reset}          Compile LaTeX project to PDF using Tectonic / TeX Live (< 600ms)
+${bold}LATEX & VERSION CONTROL:${reset}
+  ${green}compile${reset}         ${white}[project]${reset}          Compile LaTeX project to PDF (< 600ms)
+  ${green}history, log${reset}    ${white}[project]${reset}          Show Git commit timeline and revision checkpoints
 
 ${bold}PROJECT MANAGEMENT:${reset}
   ${green}init${reset}            ${white}<name> [template]${reset}  Create a new local LaTeX paper
                                  ${dim}Templates: ieee-conference, acm-sigconf, springer-nature, article-simple, blank${reset}
-  ${green}list${reset}                             List all local projects and disk paths
-  ${green}open${reset}                             Display local server status, ports, and Web UI URLs
-
-${bold}INFO & DIAGNOSTICS:${reset}
-  ${green}status${reset}                           Show local LaTeX compiler status, CRDT mesh, and port diagnostics
+  ${green}list${reset}                             List all local projects, Git remotes, and disk paths
+  ${green}status${reset}                           Show local TeX compiler status and port diagnostics
   ${green}help, -h, --help${reset}                 Show this help reference guide
-  ${green}version, -v${reset}                      Show GitLeaf version
 
 ${bold}EXAMPLES:${reset}
   ${dim}$${reset} gitleaf share "DNN-LatexWork"
-  ${dim}$${reset} gitleaf join gitleaf-k9a2bc1f "Alice Turing"
-  ${dim}$${reset} gitleaf compile
-  ${dim}$${reset} gitleaf history
+  ${dim}$${reset} gitleaf join gl-qvbiy9 "Alice"
+  ${dim}$${reset} gitleaf remote "DNN-LatexWork" https://github.com/user/paper.git
+  ${dim}$${reset} gitleaf push
   ${dim}$${reset} gitleaf pull
+  ${dim}$${reset} gitleaf compile
 `);
 }
 
@@ -67,7 +67,7 @@ async function main() {
     case 'version':
     case '--version':
     case '-v': {
-      console.log(`\n${bold}GitLeaf${reset} version ${green}0.1.0${reset} (local-first, crdt-mesh, git-history)\n`);
+      console.log(`\n${bold}GitLeaf${reset} version ${green}0.1.0${reset} (local-first, git-sync, crdt-mesh)\n`);
       break;
     }
 
@@ -124,37 +124,23 @@ async function main() {
         return;
       }
 
-      let inviteToken = '';
-      try {
-        const res = await fetch(`http://127.0.0.1:${DEFAULT_SERVER_PORT}/api/projects/${target.id}/invite`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role: 'editor' }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          inviteToken = data.token;
-        }
-      } catch {}
-
-      if (!inviteToken) {
-        const invite = inviteManager.createInvite(target.id, 'editor');
-        inviteToken = invite.token;
-      }
+      const invite = inviteManager.createInvite(target.id, 'editor');
+      const gitRemoteStr = target.gitRemote || GitSync.getRemote(target.rootPath) || 'Local-only (Not linked)';
 
       console.log(`
 ╭─────────────────────────────────────────────────────────────────────────────╮
-│  ${bold}${green}GitLeaf Co-Author Invite Token${reset}                                         │
+│  ${bold}${green}GitLeaf Co-Author Pairing Code${reset}                                         │
 │                                                                             │
 │  ${dim}Project Name${reset}  : ${white}${target.name}${reset}
+│  ${dim}Pairing Code${reset}  : ${bold}${cyan}${invite.shortCode}${reset}
+│  ${dim}Git Remote${reset}    : ${white}${gitRemoteStr}${reset}
 │  ${dim}Access Role${reset}   : ${green}Editor (Unlimited 0$ Co-Author)${reset}
-│  ${dim}Invite Token${reset}  : ${bold}${cyan}${inviteToken}${reset}
 │                                                                             │
 │  ${bold}To Join via Web UI:${reset}
-│  Paste the token into the top bar at ${white}http://localhost:${DEFAULT_CLIENT_PORT}${reset}
+│  Paste ${bold}${cyan}${invite.shortCode}${reset} into the Join Paper box at ${white}http://localhost:${DEFAULT_CLIENT_PORT}${reset}
 │                                                                             │
 │  ${bold}To Join via CLI:${reset}
-│  ${cyan}gitleaf join ${inviteToken} "Co-Author Name"${reset}
+│  ${cyan}gitleaf join ${invite.shortCode} "Co-Author Name"${reset}
 ╰─────────────────────────────────────────────────────────────────────────────╯
 `);
       break;
@@ -164,37 +150,75 @@ async function main() {
       const token = args[1];
       const name = args[2] || 'Co-Author';
       if (!token) {
-        console.log(`\n${orange}Please provide an invite token:${reset} gitleaf join <token> [your-name]\n`);
+        console.log(`\n${orange}Please provide a pairing code or Git URL:${reset} gitleaf join <code/url> [your-name]\n`);
         return;
       }
 
-      console.log(`\n${dim}Resolving invite token:${reset} ${cyan}${token.slice(0, 24)}...${reset}`);
-      try {
-        // First try via local daemon if running
-        const res = await fetch(`http://127.0.0.1:${DEFAULT_SERVER_PORT}/api/invite/join`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token, collaboratorName: name }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          console.log(`${green}✓ Successfully joined paper:${reset} ${bold}${data.project?.name || 'Project'}${reset}`);
-          console.log(`${dim}Local disk mirror :${reset} ${white}${data.project?.rootPath}${reset}`);
-          console.log(`${dim}Role              :${reset} ${green}Editor (Unlimited Free)${reset}\n`);
-          return;
-        }
-      } catch {}
-
-      // Decentralized direct creation if daemon was offline
+      console.log(`\n${dim}Resolving paper:${reset} ${cyan}${token}${reset}...`);
       try {
         const project = await inviteManager.acceptInviteAsync(token, name);
         console.log(`${green}✓ Successfully joined paper:${reset} ${bold}${project.name}${reset}`);
         console.log(`${dim}Local disk mirror :${reset} ${white}${project.rootPath}${reset}`);
-        console.log(`${dim}Role              :${reset} ${green}Editor (Unlimited Free)${reset}`);
-        console.log(`${dim}Ready to edit! Launch workspace with:${reset} ${cyan}npm run dev${reset}\n`);
+        if (project.gitRemote) {
+          console.log(`${dim}Git remote        :${reset} ${cyan}${project.gitRemote}${reset}`);
+        }
+        console.log(`${dim}Ready to edit! Launch with:${reset} ${cyan}npm run dev${reset}\n`);
       } catch (err: any) {
         console.log(`${orange}Failed to join:${reset} ${err.message}\n`);
+      }
+      break;
+    }
+
+    case 'remote': {
+      const projects = projectManager.listProjects();
+      const targetName = args[1];
+      const remoteUrl = args[2];
+
+      if (!targetName || !remoteUrl) {
+        console.log(`\n${orange}Usage:${reset} gitleaf remote <project-name> <github-repo-url>\n`);
+        return;
+      }
+
+      const target = projects.find((p) => p.name.toLowerCase().includes(targetName.toLowerCase()) || p.id === targetName);
+      if (!target) {
+        console.log(`\n${orange}Project "${targetName}" not found.${reset}\n`);
+        return;
+      }
+
+      GitSync.initRepo(target.rootPath);
+      const ok = GitSync.setRemote(target.rootPath, remoteUrl);
+      if (ok) {
+        target.gitRemote = remoteUrl;
+        GitSync.commit(target.rootPath, 'Initial GitLeaf commit');
+        const pushed = GitSync.push(target.rootPath);
+        console.log(`\n${green}✓ Linked GitHub remote:${reset} ${white}${remoteUrl}${reset}`);
+        console.log(`${dim}Initial push:${reset} ${pushed ? green + 'Success' : orange + 'Pending credentials'}${reset}\n`);
+      } else {
+        console.log(`\n${orange}Failed to set remote.${reset}\n`);
+      }
+      break;
+    }
+
+    case 'push': {
+      const projects = projectManager.listProjects();
+      const targetName = args[1];
+      const message = args[2] || 'GitLeaf save';
+      const target = targetName
+        ? projects.find((p) => p.name.toLowerCase().includes(targetName.toLowerCase()) || p.id === targetName)
+        : projects[0];
+
+      if (!target) {
+        console.log(`\n${orange}No project found to push.${reset}\n`);
+        return;
+      }
+
+      console.log(`\n${dim}Pushing project:${reset} ${bold}${target.name}${reset}`);
+      GitSync.commit(target.rootPath, message);
+      const success = GitSync.push(target.rootPath);
+      if (success) {
+        console.log(`${green}✓ Pushed all latest changes to remote repository.${reset}\n`);
+      } else {
+        console.log(`${orange}✗ Push failed. Ensure a Git remote is linked with: gitleaf remote "${target.name}" <url>${reset}\n`);
       }
       break;
     }
@@ -214,10 +238,19 @@ async function main() {
 
       console.log(`\n${dim}Synchronizing project:${reset} ${bold}${target.name}${reset}`);
       console.log(`${dim}Local disk path     :${reset} ${white}${target.rootPath}${reset}`);
-      
-      const host = target.remoteHost || `127.0.0.1:${DEFAULT_SERVER_PORT}`;
-      console.log(`${dim}Syncing with host   :${reset} ${cyan}http://${host}${reset}`);
 
+      // Try Git pull first if remote exists
+      if (GitSync.isGitRepo(target.rootPath) && GitSync.getRemote(target.rootPath)) {
+        console.log(`${dim}Pulling from Git remote...${reset}`);
+        const gitOk = GitSync.pull(target.rootPath);
+        if (gitOk) {
+          console.log(`${green}✓ Pulled latest commits from Git remote.${reset}\n`);
+          break;
+        }
+      }
+
+      // LAN fallback
+      const host = target.remoteHost || `127.0.0.1:${DEFAULT_SERVER_PORT}`;
       try {
         const res = await fetch(`http://${host}/api/projects/${target.id}/export`, {
           signal: AbortSignal.timeout(3000),
@@ -229,17 +262,12 @@ async function main() {
               projectManager.writeFile(target.rootPath, filePath, content as string);
             }
           }
-          console.log(`${green}✓ Pulled and updated ${Object.keys(data.files || {}).length} files to disk.${reset}`);
+          console.log(`${green}✓ Pulled and updated ${Object.keys(data.files || {}).length} files to disk.${reset}\n`);
+          break;
         }
-      } catch (err: any) {
-        console.log(`${dim}Host offline or local-only mode. Aligning CRDT mesh state...${reset}`);
-      }
+      } catch {}
 
-      const snapshots = historyTracker.listSnapshots(target.rootPath);
-      if (snapshots.length > 0) {
-        console.log(`${dim}Latest checkpoint   :${reset} ${cyan}#${snapshots[0].id}${reset} (${snapshots[0].message})`);
-      }
-      console.log(`${green}✓ All local files are up-to-date on disk.${reset}\n`);
+      console.log(`${green}✓ Local files are synchronized.${reset}\n`);
       break;
     }
 
@@ -257,17 +285,19 @@ async function main() {
       }
 
       const snapshots = historyTracker.listSnapshots(target.rootPath);
-      console.log(`\n${bold}Git Version Timeline for:${reset} ${green}${target.name}${reset} (${snapshots.length} checkpoints)`);
+      const lastGit = GitSync.getLastCommit(target.rootPath);
+
+      console.log(`\n${bold}Git Version Timeline for:${reset} ${green}${target.name}${reset}`);
       console.log(`${dim}----------------------------------------------------------------------${reset}`);
 
-      if (snapshots.length === 0) {
-        console.log(`${dim}No checkpoints recorded yet.${reset}\n`);
-        return;
+      if (lastGit) {
+        console.log(`* ${cyan}git commit ${lastGit.hash}${reset} ${dim}(${lastGit.date})${reset}`);
+        console.log(`  ${lastGit.message}\n`);
       }
 
-      for (const s of snapshots) {
+      for (const s of snapshots.slice(0, 5)) {
         const dateStr = new Date(s.timestamp).toLocaleString();
-        console.log(`* ${cyan}commit ${s.id}${reset} ${dim}(${dateStr})${reset}`);
+        console.log(`* ${cyan}checkpoint ${s.id}${reset} ${dim}(${dateStr})${reset}`);
         console.log(`  Author: ${white}${s.author}${reset}`);
         console.log(`  ${s.message}`);
         console.log(`  ${dim}Files: ${s.files.map((f) => f.path).join(', ')}${reset}\n`);
@@ -279,9 +309,14 @@ async function main() {
       const name = args[1] || 'My Research Paper';
       const template = args[2] || 'ieee-conference';
       const project = projectManager.createProject(name, template);
+      // Auto-init git repo
+      GitSync.initRepo(project.rootPath);
+      GitSync.commit(project.rootPath, 'Initial paper structure');
+
       console.log(`\n${green}✓ Created new GitLeaf project:${reset} ${bold}${project.name}${reset}`);
-      console.log(`${dim}Location:${reset} ${white}${project.rootPath}${reset}`);
-      console.log(`${dim}Template:${reset} ${cyan}${template}${reset}\n`);
+      console.log(`${dim}Location :${reset} ${white}${project.rootPath}${reset}`);
+      console.log(`${dim}Template :${reset} ${cyan}${template}${reset}`);
+      console.log(`${dim}Git Repo :${reset} ${green}Initialized (.git)${reset}\n`);
       break;
     }
 
@@ -290,8 +325,10 @@ async function main() {
       console.log(`\n${bold}GitLeaf Local Projects (${projects.length}):${reset}`);
       console.log(`${dim}------------------------------------------------------------${reset}`);
       for (const p of projects) {
+        const remote = p.gitRemote || GitSync.getRemote(p.rootPath) || 'Local-only';
         console.log(`• ${green}${p.name}${reset} ${dim}(id: ${p.id})${reset}`);
-        console.log(`  ${dim}Path: ${p.rootPath}${reset}`);
+        console.log(`  ${dim}Remote: ${cyan}${remote}${reset}`);
+        console.log(`  ${dim}Path  : ${p.rootPath}${reset}`);
       }
       console.log('');
       break;

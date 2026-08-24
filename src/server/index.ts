@@ -10,6 +10,7 @@ import { LatexCompiler } from './compiler/runner.js';
 import { YjsSyncRelay } from './sync/yjs-relay.js';
 import { InviteManager } from './sync/invite.js';
 import { HistoryTracker } from './git/history.js';
+import { GitSync } from './git/sync.js';
 import { detectSystemTeX } from '../cli/system.js';
 import { printCliBanner } from '../cli/banner.js';
 import { DEFAULT_SERVER_PORT, DEFAULT_CLIENT_PORT } from '../shared/constants.js';
@@ -342,7 +343,7 @@ app.post('/api/invite/join', async (req, res) => {
     return res.status(400).json({ error: 'Token and Name are required' });
   }
   try {
-    const project = await inviteManager.acceptInviteAsync(token, collaboratorName, host);
+    const project = await inviteManager.acceptInviteAsync(token, collaboratorName);
     res.json({ success: true, project });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -386,6 +387,84 @@ app.get('/api/projects/:id/history/:snapshotId', (req, res) => {
   if (!snapshot) return res.status(404).json({ error: 'Snapshot not found' });
   res.json(snapshot);
 });
+
+// 7. Git Sync — Link Remote, Push, Pull, Status
+app.post('/api/projects/:id/git/link-remote', (req, res) => {
+  const project = projectManager.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  const { remoteUrl } = req.body;
+  if (!remoteUrl) return res.status(400).json({ error: 'remoteUrl is required' });
+
+  if (!GitSync.hasGit()) {
+    return res.status(500).json({ error: 'Git is not installed on this machine.' });
+  }
+
+  GitSync.initRepo(project.rootPath);
+  const success = GitSync.setRemote(project.rootPath, remoteUrl);
+  if (!success) {
+    return res.status(500).json({ error: 'Failed to set Git remote.' });
+  }
+
+  // Update project metadata
+  project.gitRemote = remoteUrl;
+  const metaPath = path.join(project.rootPath, '.gitleaf.json');
+  fs.writeFileSync(metaPath, JSON.stringify(project, null, 2), 'utf-8');
+
+  // Initial commit + push
+  GitSync.commit(project.rootPath, 'Initial GitLeaf commit');
+  const pushed = GitSync.push(project.rootPath);
+
+  res.json({
+    success: true,
+    gitRemote: remoteUrl,
+    pushed,
+    message: pushed ? 'Remote linked and files pushed.' : 'Remote linked. Push manually if needed.',
+  });
+});
+
+app.post('/api/projects/:id/git/push', (req, res) => {
+  const project = projectManager.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  const message = req.body.message || 'GitLeaf save';
+  GitSync.commit(project.rootPath, message);
+  const pushed = GitSync.push(project.rootPath);
+
+  res.json({ success: pushed, message: pushed ? 'Changes pushed to remote.' : 'Push failed — check Git credentials.' });
+});
+
+app.post('/api/projects/:id/git/pull', (req, res) => {
+  const project = projectManager.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  const pulled = GitSync.pull(project.rootPath);
+  res.json({ success: pulled, message: pulled ? 'Latest changes pulled.' : 'Pull failed or no remote configured.' });
+});
+
+app.get('/api/projects/:id/git/status', (req, res) => {
+  const project = projectManager.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  const remote = GitSync.getRemote(project.rootPath);
+  const status = GitSync.getStatus(project.rootPath);
+  const lastCommit = GitSync.getLastCommit(project.rootPath);
+  const isRepo = GitSync.isGitRepo(project.rootPath);
+
+  res.json({
+    isGitRepo: isRepo,
+    hasRemote: !!remote,
+    remote: remote || null,
+    clean: status.clean,
+    changedFiles: status.changedFiles,
+    lastCommit,
+  });
+});
+
+// Auto-pull all Git-linked projects on startup
+if (GitSync.hasGit()) {
+  console.log('[GitSync] Pulling latest for all Git-linked projects...');
+  GitSync.pullAllOnStartup(projectManager.getBaseDir());
+}
 
 // Ensure a default starter project exists
 const existingProjects = projectManager.listProjects();

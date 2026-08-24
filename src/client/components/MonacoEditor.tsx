@@ -257,7 +257,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     });
   };
 
-  // Real-Time Yjs WebSocket Collaboration Setup
+  // Real-Time Yjs WebSocket Collaboration Setup (local server only — reliable)
   useEffect(() => {
     if (!editorRef.current || !projectId || !filePath) return;
 
@@ -279,42 +279,17 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     ydocRef.current = ydoc;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    let targetHost = window.location.host;
-    if (remoteHost) {
-      const cleanHost = remoteHost.split(':')[0];
-      targetHost = `${cleanHost}:4411`;
-    }
+    const targetHost = window.location.host;
     const wsUrl = `${protocol}//${targetHost}/ws`;
     const roomName = `${projectId}:${filePath}`;
 
-    // 1. Local/LAN WebSocket Provider (persists edits to local filesystem)
+    // Single local WebSocket provider — handles CRDT sync + disk persistence
     const provider = new WebsocketProvider(wsUrl, roomName, ydoc, { connect: true });
     providerRef.current = provider;
-
-    // 2. Global Cloud Signaling Mesh (enables cross-laptop live sync across any network/firewall)
-    let globalProvider: WebsocketProvider | null = null;
-    try {
-      const globalRoom = `gitleaf-${projectId}:${filePath}`;
-      globalProvider = new WebsocketProvider('wss://demos.yjs.dev/ws', globalRoom, ydoc, { connect: true });
-      globalProviderRef.current = globalProvider;
-
-      globalProvider.awareness.setLocalStateField('user', {
-        name: user?.name || 'Co-Author',
-        color: user?.color || '#10B981',
-      });
-    } catch {}
 
     provider.on('status', (event: { status: 'connected' | 'connecting' | 'disconnected' }) => {
       setSyncStatus(event.status);
     });
-
-    if (globalProvider) {
-      globalProvider.on('status', (event: { status: 'connected' | 'connecting' | 'disconnected' }) => {
-        if (event.status === 'connected') {
-          setSyncStatus('connected');
-        }
-      });
-    }
 
     // Configure user awareness for live collaborator cursors
     provider.awareness.setLocalStateField('user', {
@@ -324,13 +299,9 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
     const updatePeers = () => {
       const states = provider.awareness.getStates();
-      const globalStates = globalProvider ? globalProvider.awareness.getStates() : new Map();
       const peers: PeerUser[] = [];
-      const seen = new Set<number>();
-
       states.forEach((state: any, clientID: number) => {
-        if (state.user && clientID !== ydoc.clientID && !seen.has(clientID)) {
-          seen.add(clientID);
+        if (state.user && clientID !== ydoc.clientID) {
           peers.push({
             id: clientID,
             name: state.user.name || 'Co-Author',
@@ -338,25 +309,10 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
           });
         }
       });
-
-      globalStates.forEach((state: any, clientID: number) => {
-        if (state.user && clientID !== ydoc.clientID && !seen.has(clientID)) {
-          seen.add(clientID);
-          peers.push({
-            id: clientID,
-            name: state.user.name || 'Co-Author',
-            color: state.user.color || '#3B82F6',
-          });
-        }
-      });
-
       setActivePeers(peers);
     };
 
     provider.awareness.on('change', updatePeers);
-    if (globalProvider) {
-      globalProvider.awareness.on('change', updatePeers);
-    }
 
     const yText = ydoc.getText('monaco');
     const initialText = content || '';
@@ -373,7 +329,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
         yText,
         model,
         new Set([editorRef.current]),
-        globalProvider ? globalProvider.awareness : provider.awareness
+        provider.awareness
       );
       bindingRef.current = binding;
 
@@ -405,10 +361,6 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
       if (providerRef.current) {
         providerRef.current.destroy();
         providerRef.current = null;
-      }
-      if (globalProviderRef.current) {
-        globalProviderRef.current.destroy();
-        globalProviderRef.current = null;
       }
       if (ydocRef.current) {
         ydocRef.current.destroy();

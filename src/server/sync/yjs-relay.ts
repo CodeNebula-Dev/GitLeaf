@@ -5,6 +5,7 @@ import * as awarenessProtocol from 'y-protocols/awareness';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { ProjectManager } from '../fs/manager.js';
+import { GitSync } from '../git/sync.js';
 
 const messageSync = 0;
 const messageAwareness = 1;
@@ -150,6 +151,11 @@ export class YjsSyncRelay {
             if (currentProj) {
               const textContent = doc.getText('monaco').toString();
               this.projectManager.writeFile(currentProj.rootPath, filePath, textContent);
+              
+              // Automatically commit & push in background if Git remote is configured
+              if (currentProj.gitRemote && GitSync.isGitRepo(currentProj.rootPath)) {
+                GitSync.commitAndPushAsync(currentProj.rootPath, `GitLeaf auto-save: ${filePath}`);
+              }
             }
           } catch (saveErr) {
             console.error(`Failed to persist ${filePath} to disk:`, saveErr);
