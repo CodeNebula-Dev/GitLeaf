@@ -148,14 +148,44 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Right: Actions & User Avatar */}
+      {/* Right: Collaborators, Actions & User Avatar */}
       <div className="flex items-center space-x-2">
+        {/* Collaborators Dropdown */}
+        <div className="relative">
+          <button
+            onClick={() => setDropdownOpen(false)}
+            onMouseEnter={() => {}}
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-dark-hover hover:bg-dark-border text-dark-text text-xs font-medium border border-dark-border transition-colors font-mono"
+            title="Project Collaborators"
+          >
+            <div className="flex -space-x-1.5 items-center">
+              <div
+                className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ring-1 ring-dark-surface"
+                style={{ backgroundColor: user?.color || '#10B981' }}
+              >
+                {user?.name?.charAt(0).toUpperCase() || 'U'}
+              </div>
+              {(currentProject?.collaborators || []).slice(0, 3).map((c, idx) => (
+                <div
+                  key={c.id || idx}
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white bg-leaf-600 ring-1 ring-dark-surface"
+                >
+                  {c.name.charAt(0).toUpperCase()}
+                </div>
+              ))}
+            </div>
+            <span className="text-[11px] text-dark-muted hidden md:inline ml-1">
+              {Math.max(1, (currentProject?.collaborators?.length || 0) + 1)} Members
+            </span>
+          </button>
+        </div>
+
         <button
           onClick={onOpenShare}
-          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-dark-hover hover:bg-dark-border text-dark-text text-xs font-medium border border-dark-border transition-colors font-mono"
+          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-leaf-500/10 hover:bg-leaf-500/20 text-leaf-400 hover:text-leaf-300 text-xs font-medium border border-leaf-500/30 transition-colors font-mono"
           title="Invite co-authors with unlimited free access"
         >
-          <Share2 className="w-3.5 h-3.5 text-leaf-400" />
+          <Share2 className="w-3.5 h-3.5" />
           <span>Share</span>
         </button>
 
@@ -171,7 +201,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* User Profile Avatar */}
         <button
           onClick={onOpenProfile}
-          className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs text-white border border-dark-border ml-1"
+          className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs text-white border border-dark-border ml-1 shadow-sm"
           style={{ backgroundColor: user?.color || '#10B981' }}
           title={`${user?.name || 'Author'} (${user?.email || 'local'})`}
         >

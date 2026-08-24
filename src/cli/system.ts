@@ -13,12 +13,19 @@ export interface SystemTeXStatus {
 }
 
 export function detectSystemTeX(): SystemTeXStatus {
+  const isWindows = process.platform === 'win32';
   const checkBinary = (bin: string): { found: boolean; path?: string } => {
-    // Check custom standard paths first on macOS
+    // Check custom standard paths first on macOS and Windows
     const candidatePaths = [
       `/opt/homebrew/bin/${bin}`,
       `/usr/local/bin/${bin}`,
       `/Library/TeX/texbin/${bin}`,
+      `C:\\Program Files\\MiKTeX\\miktex\\bin\\x64\\${bin}.exe`,
+      `C:\\Program Files (x86)\\MiKTeX\\miktex\\bin\\${bin}.exe`,
+      `C:\\texlive\\2025\\bin\\windows\\${bin}.exe`,
+      `C:\\texlive\\2024\\bin\\windows\\${bin}.exe`,
+      `C:\\texlive\\2023\\bin\\windows\\${bin}.exe`,
+      `C:\\tools\\tectonic\\${bin}.exe`,
     ];
 
     for (const p of candidatePaths) {
@@ -28,7 +35,8 @@ export function detectSystemTeX(): SystemTeXStatus {
     }
 
     try {
-      const resolved = execSync(`which ${bin}`, { stdio: 'pipe' }).toString().trim();
+      const lookupCmd = isWindows ? `where.exe ${bin}` : `which ${bin}`;
+      const resolved = execSync(lookupCmd, { stdio: 'pipe' }).toString().trim().split('\r\n')[0].split('\n')[0];
       if (resolved && fs.existsSync(resolved)) {
         return { found: true, path: resolved };
       }

@@ -32,6 +32,7 @@ interface DashboardProps {
   onNewProject: () => void;
   onDeleteProject: (projectId: string) => void;
   onOpenProfile: () => void;
+  onRefreshProjects?: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -41,6 +42,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onNewProject,
   onDeleteProject,
   onOpenProfile,
+  onRefreshProjects,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [joinToken, setJoinToken] = useState('');
@@ -91,6 +93,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       });
       const data = await res.json();
       if (res.ok && data.project) {
+        onRefreshProjects?.();
         onOpenProject(data.project);
       } else {
         setJoinError(data.error || 'Failed to join project');
@@ -124,6 +127,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       });
       const data = await res.json();
       if (res.ok && data.project) {
+        onRefreshProjects?.();
         onOpenProject(data.project);
       } else {
         setJoinError(data.error || 'Failed to import .gitleaf bundle');

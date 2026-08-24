@@ -64,8 +64,10 @@ export class LatexCompiler {
         args = ['-synctex=1', '-interaction=nonstopmode', '-file-line-error', mainFile];
       }
 
+      const isWindows = process.platform === 'win32';
       const child = spawn(cmd, args, {
         cwd: projectRoot,
+        shell: isWindows,
         env: {
           ...process.env,
           PATH: `/opt/homebrew/bin:/usr/local/bin:/Library/TeX/texbin:${process.env.PATH || ''}`,

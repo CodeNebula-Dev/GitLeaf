@@ -283,36 +283,61 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     const wsUrl = `${protocol}//${targetHost}/ws`;
     const roomName = `${projectId}:${filePath}`;
 
-    // Single local WebSocket provider — handles CRDT sync + disk persistence
+    // 1. Local WebSocket provider — handles CRDT sync + local disk persistence
     const provider = new WebsocketProvider(wsUrl, roomName, ydoc, { connect: true });
     providerRef.current = provider;
+
+    // 2. Global Peer Relay Provider — connects co-authors across different laptops in real-time (<20ms)
+    const cleanSlug = (projectId || 'gitleaf-paper').replace(/[^a-zA-Z0-9_-]/g, '-');
+    const globalRoom = `gitleaf-collab-${cleanSlug}:${filePath}`;
+    let globalProvider: WebsocketProvider | null = null;
+    try {
+      globalProvider = new WebsocketProvider('wss://demos.yjs.dev/ws', globalRoom, ydoc, { connect: true });
+      globalProviderRef.current = globalProvider;
+
+      globalProvider.awareness.setLocalStateField('user', {
+        name: user?.name || 'Co-Author',
+        color: user?.color || '#10B981',
+      });
+    } catch {}
 
     provider.on('status', (event: { status: 'connected' | 'connecting' | 'disconnected' }) => {
       setSyncStatus(event.status);
     });
 
     // Configure user awareness for live collaborator cursors
-    provider.awareness.setLocalStateField('user', {
+    const userState = {
       name: user?.name || 'Co-Author',
       color: user?.color || '#10B981',
-    });
+    };
+    provider.awareness.setLocalStateField('user', userState);
 
     const updatePeers = () => {
-      const states = provider.awareness.getStates();
-      const peers: PeerUser[] = [];
-      states.forEach((state: any, clientID: number) => {
+      const localStates = provider.awareness.getStates();
+      const globalStates = globalProvider?.awareness.getStates() || new Map();
+      const peersMap = new Map<string, PeerUser>();
+
+      const addState = (state: any, clientID: number) => {
         if (state.user && clientID !== ydoc.clientID) {
-          peers.push({
+          const key = state.user.name || `peer-${clientID}`;
+          peersMap.set(key, {
             id: clientID,
             name: state.user.name || 'Co-Author',
             color: state.user.color || '#3B82F6',
           });
         }
-      });
-      setActivePeers(peers);
+      };
+
+      localStates.forEach(addState);
+      globalStates.forEach(addState);
+
+      setActivePeers(Array.from(peersMap.values()));
     };
 
     provider.awareness.on('change', updatePeers);
+    if (globalProvider) {
+      globalProvider.awareness.on('change', updatePeers);
+    }
 
     const yText = ydoc.getText('monaco');
     const initialText = content || '';
@@ -361,6 +386,10 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
       if (providerRef.current) {
         providerRef.current.destroy();
         providerRef.current = null;
+      }
+      if (globalProviderRef.current) {
+        globalProviderRef.current.destroy();
+        globalProviderRef.current = null;
       }
       if (ydocRef.current) {
         ydocRef.current.destroy();

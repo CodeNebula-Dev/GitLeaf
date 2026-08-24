@@ -41,6 +41,7 @@ export const App: React.FC = () => {
     createProject,
     deleteProject,
     jumpToLine,
+    refreshProjects,
   } = useProject();
 
   const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -65,6 +66,7 @@ export const App: React.FC = () => {
           });
           const data = await res.json();
           if (res.ok && data.project) {
+            refreshProjects();
             setCurrentProject(data.project);
             setViewMode('workspace');
             window.history.replaceState({}, document.title, window.location.pathname);
@@ -75,11 +77,16 @@ export const App: React.FC = () => {
       };
       joinFromUrl();
     }
-  }, [user?.name]);
+  }, [user?.name, refreshProjects]);
 
   const handleOpenProjectFromDashboard = (proj: ProjectMetadata) => {
     setCurrentProject(proj);
     setViewMode('workspace');
+  };
+
+  const handleBackToDashboard = () => {
+    refreshProjects();
+    setViewMode('dashboard');
   };
 
   const handleDeleteProject = async (projectId: string) => {
@@ -97,6 +104,7 @@ export const App: React.FC = () => {
           onNewProject={() => setTemplatesModalOpen(true)}
           onDeleteProject={handleDeleteProject}
           onOpenProfile={() => setProfileModalOpen(true)}
+          onRefreshProjects={refreshProjects}
         />
       ) : (
         /* View 2: Full LaTeX IDE Workspace */
@@ -107,7 +115,7 @@ export const App: React.FC = () => {
             projects={projects}
             user={user}
             onSelectProject={setCurrentProject}
-            onBackToDashboard={() => setViewMode('dashboard')}
+            onBackToDashboard={handleBackToDashboard}
             onCompile={compile}
             onFormat={formatCode}
             isCompiling={isCompiling}
