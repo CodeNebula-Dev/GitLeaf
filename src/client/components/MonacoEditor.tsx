@@ -9,6 +9,7 @@ import { Users, Wifi, WifiOff } from 'lucide-react';
 
 interface MonacoEditorProps {
   projectId?: string;
+  projectName?: string;
   gitRemote?: string;
   remoteHost?: string;
   filePath: string;
@@ -31,6 +32,7 @@ export interface PeerUser {
 
 export const MonacoEditor: React.FC<MonacoEditorProps> = ({
   projectId,
+  projectName,
   gitRemote,
   remoteHost,
   filePath,
@@ -292,7 +294,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     providerRef.current = provider;
 
     // 2. Global Peer Relay Provider — connects co-authors across different laptops in real-time (<20ms)
-    const rawTarget = gitRemote || projectId || 'gitleaf-paper';
+    const rawTarget = gitRemote || projectName || projectId || 'gitleaf-paper';
     const cleanSlug = rawTarget
       .replace(/https?:\/\/github\.com\//i, '')
       .replace(/\.git$/i, '')
@@ -307,6 +309,10 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
       globalProvider.awareness.setLocalStateField('user', {
         name: user?.name || 'Co-Author',
         color: user?.color || '#10B981',
+      });
+
+      globalProvider.on('status', (event: { status: 'connected' | 'connecting' | 'disconnected' }) => {
+        if (event.status === 'connected') setSyncStatus('connected');
       });
     } catch {}
 

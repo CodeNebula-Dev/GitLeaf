@@ -114,7 +114,7 @@ export function useProject() {
   // 4. Save Content (debounced / safe)
   const saveContent = useCallback(
     async (path: string, content: string) => {
-      if (!currentProject || !fileLoadedRef.current || !path) return;
+      if (!currentProject || !path) return;
       setIsSaving(true);
       try {
         await fetch(`/api/projects/${currentProject.id}/file-content`, {
@@ -155,7 +155,6 @@ export function useProject() {
 
   const handleContentChange = useCallback(
     (newContent: string) => {
-      if (!fileLoadedRef.current) return;
       setActiveFileContent(newContent);
 
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);

@@ -144,6 +144,7 @@ export const App: React.FC = () => {
             <div className="flex-1 flex flex-col h-full min-w-[320px] overflow-hidden border-r border-dark-border">
               <MonacoEditor
                 projectId={currentProject?.id}
+                projectName={currentProject?.name}
                 gitRemote={currentProject?.gitRemote}
                 remoteHost={currentProject?.remoteHost}
                 content={activeFileContent}
