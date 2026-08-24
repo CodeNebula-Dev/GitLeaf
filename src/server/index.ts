@@ -454,13 +454,13 @@ app.post('/api/github/auth', async (req, res) => {
   const { token } = req.body;
   if (!token) return res.status(400).json({ error: 'Token is required' });
 
-  const user = await githubService.getAuthenticatedUser(token.trim());
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid GitHub token. Please ensure it has "repo" scope.' });
+  const result = await githubService.verifyToken(token);
+  if (!result.success || !result.user) {
+    return res.status(401).json({ error: `GitHub rejected token: ${result.error || 'Bad credentials'}. Please verify token scopes.` });
   }
 
-  githubService.saveToken(token.trim());
-  res.json({ success: true, user });
+  githubService.saveToken(token);
+  res.json({ success: true, user: result.user });
 });
 
 app.post('/api/github/disconnect', (req, res) => {

@@ -28,6 +28,12 @@ export interface GitHubInviteResult {
   error?: string;
 }
 
+export interface GitHubAuthResult {
+  success: boolean;
+  user?: GitHubUser;
+  error?: string;
+}
+
 export class GitHubService {
   private configPath: string;
 
@@ -36,14 +42,25 @@ export class GitHubService {
   }
 
   /**
+   * Sanitize token (remove whitespace, quotes, or accidental prefixes)
+   */
+  public cleanToken(token: string): string {
+    return token
+      .trim()
+      .replace(/^['"]|['"]$/g, '')
+      .replace(/^(token|bearer)\s+/i, '')
+      .trim();
+  }
+
+  /**
    * Get stored GitHub Personal Access Token
    */
   public getToken(): string | null {
-    if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
+    if (process.env.GITHUB_TOKEN) return this.cleanToken(process.env.GITHUB_TOKEN);
     if (fs.existsSync(this.configPath)) {
       try {
         const data = JSON.parse(fs.readFileSync(this.configPath, 'utf-8'));
-        return data.token || null;
+        return data.token ? this.cleanToken(data.token) : null;
       } catch {
         return null;
       }
@@ -54,9 +71,10 @@ export class GitHubService {
   /**
    * Save GitHub Personal Access Token
    */
-  public saveToken(token: string): boolean {
+  public saveToken(rawToken: string): boolean {
     try {
-      fs.writeFileSync(this.configPath, JSON.stringify({ token: token.trim(), savedAt: Date.now() }, null, 2), 'utf-8');
+      const token = this.cleanToken(rawToken);
+      fs.writeFileSync(this.configPath, JSON.stringify({ token, savedAt: Date.now() }, null, 2), 'utf-8');
       return true;
     } catch (err: any) {
       console.error('Failed to save GitHub token:', err.message);
@@ -79,33 +97,64 @@ export class GitHubService {
   }
 
   /**
-   * Verify token and fetch current user profile
+   * Verify token and fetch current user profile with detailed error info
+   */
+  public async verifyToken(customToken?: string): Promise<GitHubAuthResult> {
+    const raw = customToken || this.getToken();
+    if (!raw) {
+      return { success: false, error: 'No token provided' };
+    }
+
+    const token = this.cleanToken(raw);
+
+    // Try Bearer auth header first, fallback to token header
+    const authHeaders = [
+      `Bearer ${token}`,
+      `token ${token}`,
+    ];
+
+    let lastError = 'Authentication failed';
+
+    for (const authHeader of authHeaders) {
+      try {
+        const res = await fetch('https://api.github.com/user', {
+          headers: {
+            Authorization: authHeader,
+            Accept: 'application/vnd.github.v3+json',
+            'User-Agent': 'GitLeaf/1.0 (https://github.com/CodeNebula-Dev/GitLeaf)',
+          },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          return {
+            success: true,
+            user: {
+              login: data.login,
+              id: data.id,
+              name: data.name || data.login,
+              avatar_url: data.avatar_url,
+              email: data.email,
+            },
+          };
+        }
+
+        const errData = await res.json().catch(() => ({ message: res.statusText }));
+        lastError = errData.message || `GitHub error ${res.status}: ${res.statusText}`;
+      } catch (err: any) {
+        lastError = err.message || 'Network error reaching api.github.com';
+      }
+    }
+
+    return { success: false, error: lastError };
+  }
+
+  /**
+   * Quick getter for authenticated user (returns null if unauthenticated)
    */
   public async getAuthenticatedUser(customToken?: string): Promise<GitHubUser | null> {
-    const token = customToken || this.getToken();
-    if (!token) return null;
-
-    try {
-      const res = await fetch('https://api.github.com/user', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github.v3+json',
-          'User-Agent': 'GitLeaf-App',
-        },
-      });
-
-      if (!res.ok) return null;
-      const data = await res.json();
-      return {
-        login: data.login,
-        id: data.id,
-        name: data.name || data.login,
-        avatar_url: data.avatar_url,
-        email: data.email,
-      };
-    } catch {
-      return null;
-    }
+    const res = await this.verifyToken(customToken);
+    return res.success ? (res.user || null) : null;
   }
 
   /**
@@ -130,7 +179,7 @@ export class GitHubService {
           Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github.v3+json',
           'Content-Type': 'application/json',
-          'User-Agent': 'GitLeaf-App',
+          'User-Agent': 'GitLeaf/1.0',
         },
         body: JSON.stringify({
           name: safeName,
@@ -197,7 +246,7 @@ export class GitHubService {
           Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github.v3+json',
           'Content-Type': 'application/json',
-          'User-Agent': 'GitLeaf-App',
+          'User-Agent': 'GitLeaf/1.0',
         },
         body: JSON.stringify({ permission: 'push' }),
       });
