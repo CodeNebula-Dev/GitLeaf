@@ -196,8 +196,12 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
     }
   };
 
-  const codeToShow = shortCode || `gl-${project.id.slice(0, 6)}`;
-  const inviteUrl = `${window.location.origin}?join=${codeToShow}`;
+  const gitMatch = (currentGitRemote || project.gitRemote)?.match(/github\.com[/:]([\w.-]+)\/([\w.-]+?)(\.git)?$/);
+  const repoSlug = gitMatch ? `${gitMatch[1]}/${gitMatch[2]}` : null;
+  const codeToShow = repoSlug || shortCode || `gl-${project.id.slice(0, 6)}`;
+  const inviteUrl = (currentGitRemote || project.gitRemote)
+    ? `${window.location.origin}?join=${encodeURIComponent(currentGitRemote || project.gitRemote || '')}`
+    : `${window.location.origin}?join=${codeToShow}`;
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(inviteUrl);

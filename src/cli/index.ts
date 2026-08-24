@@ -156,21 +156,23 @@ async function main() {
 
       const invite = inviteManager.createInvite(target.id, 'editor');
       const gitRemoteStr = target.gitRemote || GitSync.getRemote(target.rootPath) || 'Local-only (Not linked)';
+      const gitMatch = gitRemoteStr.match(/github\.com[/:]([\w.-]+)\/([\w.-]+?)(\.git)?$/);
+      const displayCode = gitMatch ? `${gitMatch[1]}/${gitMatch[2]}` : invite.shortCode;
 
       console.log(`
 ╭─────────────────────────────────────────────────────────────────────────────╮
 │  ${bold}${green}GitLeaf Co-Author Pairing Code${reset}                                         │
 │                                                                             │
 │  ${dim}Project Name${reset}  : ${white}${target.name}${reset}
-│  ${dim}Pairing Code${reset}  : ${bold}${cyan}${invite.shortCode}${reset}
+│  ${dim}Pairing Code${reset}  : ${bold}${cyan}${displayCode}${reset}
 │  ${dim}Git Remote${reset}    : ${white}${gitRemoteStr}${reset}
 │  ${dim}Access Role${reset}   : ${green}Editor (Unlimited 0$ Co-Author)${reset}
 │                                                                             │
 │  ${bold}To Join via Web UI:${reset}
-│  Paste ${bold}${cyan}${invite.shortCode}${reset} into the Join Paper box at ${white}http://localhost:${DEFAULT_CLIENT_PORT}${reset}
+│  Paste ${bold}${cyan}${displayCode}${reset} into the Join Paper box at ${white}http://localhost:${DEFAULT_CLIENT_PORT}${reset}
 │                                                                             │
 │  ${bold}To Join via CLI:${reset}
-│  ${cyan}gitleaf join ${invite.shortCode} "Co-Author Name"${reset}
+│  ${cyan}gitleaf join ${displayCode} "Co-Author Name"${reset}
 ╰─────────────────────────────────────────────────────────────────────────────╯
 `);
       break;
