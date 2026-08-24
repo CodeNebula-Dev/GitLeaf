@@ -10,6 +10,8 @@ export function useProject() {
   const [compilationResult, setCompilationResult] = useState<CompilationResult | null>(null);
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isPushing, setIsPushing] = useState<boolean>(false);
+  const [isPulling, setIsPulling] = useState<boolean>(false);
   const [isFileLoading, setIsFileLoading] = useState<boolean>(false);
   const [cursorPosition, setCursorPosition] = useState<{ line: number; column: number }>({ line: 1, column: 1 });
   const [targetJumpLine, setTargetJumpLine] = useState<number | null>(null);
@@ -303,7 +305,50 @@ export function useProject() {
     saveContent(activeFilePath, newFormatted);
   }, [activeFileContent, activeFilePath, saveContent]);
 
-  // 11. Jump to Diagnostic
+  // 11. Git Push (Manual push to GitHub cloud)
+  const gitPush = async (userName?: string) => {
+    if (!currentProject) return;
+    setIsPushing(true);
+    try {
+      if (activeFilePath) {
+        await saveContent(activeFilePath, activeFileContent);
+      }
+      const res = await fetch(`/api/projects/${currentProject.id}/git/push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userName }),
+      });
+      const data = await res.json();
+      return data;
+    } catch (err) {
+      console.error('Error pushing to Git:', err);
+    } finally {
+      setIsPushing(false);
+    }
+  };
+
+  // 12. Git Pull (Manual pull from GitHub cloud)
+  const gitPull = async () => {
+    if (!currentProject) return;
+    setIsPulling(true);
+    try {
+      const res = await fetch(`/api/projects/${currentProject.id}/git/pull`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      await fetchFiles();
+      if (currentPathRef.current) {
+        await fetchFileContent(currentProject.id, currentPathRef.current);
+      }
+      return data;
+    } catch (err) {
+      console.error('Error pulling from Git:', err);
+    } finally {
+      setIsPulling(false);
+    }
+  };
+
+  // 13. Jump to Diagnostic
   const jumpToLine = (file: string, line: number) => {
     if (file && file !== activeFilePath) {
       setActiveFilePath(file);
@@ -324,6 +369,10 @@ export function useProject() {
     compilationResult,
     isCompiling,
     isSaving,
+    isPushing,
+    isPulling,
+    gitPush,
+    gitPull,
     isFileLoading,
     cursorPosition,
     setCursorPosition,

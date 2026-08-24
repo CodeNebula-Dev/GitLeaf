@@ -132,12 +132,6 @@ app.put('/api/projects/:id/file-content', (req, res) => {
   }
   try {
     projectManager.writeFile(project.rootPath, filePath, content);
-
-    // Auto-commit & push to GitHub in background
-    if (project.gitRemote || GitSync.getRemote(project.rootPath)) {
-      GitSync.commitAndPushAsync(project.rootPath, `GitLeaf update: ${filePath}`);
-    }
-
     res.json({ success: true, path: filePath });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -157,11 +151,6 @@ app.post('/api/projects/:id/files', (req, res) => {
     projectManager.writeFile(project.rootPath, filePath, '');
   }
 
-  // Auto-commit & push
-  if (project.gitRemote || GitSync.getRemote(project.rootPath)) {
-    GitSync.commitAndPushAsync(project.rootPath, `GitLeaf create: ${filePath}`);
-  }
-
   res.json({ success: true, path: filePath });
 });
 
@@ -172,16 +161,10 @@ app.delete('/api/projects/:id/files', (req, res) => {
   if (!filePath) return res.status(400).json({ error: 'Path is required' });
 
   projectManager.deleteFile(project.rootPath, filePath);
-
-  // Auto-commit & push
-  if (project.gitRemote || GitSync.getRemote(project.rootPath)) {
-    GitSync.commitAndPushAsync(project.rootPath, `GitLeaf delete: ${filePath}`);
-  }
-
   res.json({ success: true, path: filePath });
 });
 
-// 4. LaTeX Compilation with Git Auto-Pull and Push
+// 4. LaTeX Compilation with Git Auto-Pull (Safe: pulls co-author changes, never overwrites remote)
 app.post('/api/projects/:id/compile', async (req, res) => {
   const project = projectManager.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -200,7 +183,7 @@ app.post('/api/projects/:id/compile', async (req, res) => {
     engine || project.engine
   );
 
-  // 2. Auto-record checkpoint snapshot & push to GitHub
+  // 2. Auto-record checkpoint snapshot locally
   if (result.success) {
     try {
       const files = projectManager.getProjectFiles(project.rootPath);
@@ -211,10 +194,6 @@ app.post('/api/projects/:id/compile', async (req, res) => {
         }
       }
       historyTracker.createSnapshot(project.rootPath, 'Auto-checkpoint: Compiled PDF', 'GitLeaf Daemon', fileContents);
-
-      if (project.gitRemote || GitSync.getRemote(project.rootPath)) {
-        GitSync.commitAndPushAsync(project.rootPath, `GitLeaf compile & checkpoint`);
-      }
     } catch {}
   }
 
@@ -612,6 +591,44 @@ app.get('/api/projects/:id/git/sync-check', (req, res) => {
     pulled,
     updated,
     lastCommit: afterCommit,
+  });
+});
+
+// Dedicated manual Push to Cloud
+app.post('/api/projects/:id/git/push', (req, res) => {
+  const project = projectManager.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  const { message } = req.body || {};
+  const commitMsg = message || `GitLeaf push from ${req.body?.userName || 'author'}`;
+
+  // Stage and commit any pending changes
+  GitSync.commit(project.rootPath, commitMsg);
+  const pushed = GitSync.push(project.rootPath);
+  const lastCommit = GitSync.getLastCommit(project.rootPath);
+
+  if (pushed) {
+    res.json({ success: true, message: 'Successfully pushed all changes to GitHub!', lastCommit });
+  } else {
+    res.status(500).json({ error: 'Failed to push to GitHub. Please check your network or repository access.' });
+  }
+});
+
+// Dedicated manual Pull from Cloud
+app.post('/api/projects/:id/git/pull', (req, res) => {
+  const project = projectManager.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  const beforeCommit = GitSync.getLastCommit(project.rootPath);
+  const pulled = GitSync.pull(project.rootPath);
+  const afterCommit = GitSync.getLastCommit(project.rootPath);
+  const updated = pulled && beforeCommit?.hash !== afterCommit?.hash;
+
+  res.json({
+    success: pulled,
+    updated,
+    lastCommit: afterCommit,
+    message: updated ? 'Pulled newest changes from GitHub!' : 'Already up to date with GitHub.',
   });
 });
 

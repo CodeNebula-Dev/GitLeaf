@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Share2, History, Plus, ChevronDown, Check, Loader2, ArrowLeft, Users, Circle } from 'lucide-react';
+import { Play, Share2, History, Plus, ChevronDown, Check, Loader2, ArrowLeft, Users, UploadCloud, DownloadCloud } from 'lucide-react';
 import { ProjectMetadata } from '../../shared/types.js';
 import { UserProfile } from '../hooks/useUser.js';
 import { PeerUser } from './MonacoEditor.js';
@@ -13,8 +13,12 @@ interface NavbarProps {
   onBackToDashboard: () => void;
   onCompile: () => void;
   onFormat?: () => void;
+  onPush?: () => void;
+  onPull?: () => void;
   isCompiling: boolean;
   isSaving: boolean;
+  isPushing?: boolean;
+  isPulling?: boolean;
   onOpenShare: () => void;
   onOpenHistory: () => void;
   onOpenTemplates: () => void;
@@ -30,8 +34,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   onBackToDashboard,
   onCompile,
   onFormat,
+  onPush,
+  onPull,
   isCompiling,
   isSaving,
+  isPushing = false,
+  isPulling = false,
   onOpenShare,
   onOpenHistory,
   onOpenTemplates,
@@ -184,6 +192,45 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </span>
         </div>
+
+        {/* Git Pull Button */}
+        {onPull && (
+          <button
+            onClick={onPull}
+            disabled={isPulling}
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-dark-hover hover:bg-dark-border text-dark-text text-xs font-medium border border-dark-border transition-colors font-mono disabled:opacity-50"
+            title="Pull latest changes from GitHub"
+          >
+            {isPulling ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-leaf-400" />
+            ) : (
+              <DownloadCloud className="w-3.5 h-3.5 text-leaf-400" />
+            )}
+            <span className="hidden sm:inline">Pull</span>
+          </button>
+        )}
+
+        {/* Git Push Button */}
+        {onPush && (
+          <button
+            onClick={onPush}
+            disabled={isPushing}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 hover:text-emerald-300 text-xs font-semibold border border-emerald-500/40 shadow-sm transition-colors font-mono disabled:opacity-50"
+            title="Commit and Push your local edits to GitHub"
+          >
+            {isPushing ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Pushing...</span>
+              </>
+            ) : (
+              <>
+                <UploadCloud className="w-3.5 h-3.5" />
+                <span>Push to GitHub</span>
+              </>
+            )}
+          </button>
+        )}
 
         <button
           onClick={onOpenShare}

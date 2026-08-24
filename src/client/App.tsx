@@ -32,6 +32,10 @@ export const App: React.FC = () => {
     compilationResult,
     isCompiling,
     isSaving,
+    isPushing,
+    isPulling,
+    gitPush,
+    gitPull,
     cursorPosition,
     setCursorPosition,
     targetJumpLine,
@@ -121,8 +125,12 @@ export const App: React.FC = () => {
             onBackToDashboard={handleBackToDashboard}
             onCompile={compile}
             onFormat={formatCode}
+            onPush={() => gitPush(user?.name)}
+            onPull={gitPull}
             isCompiling={isCompiling}
             isSaving={isSaving}
+            isPushing={isPushing}
+            isPulling={isPulling}
             onOpenShare={() => setShareModalOpen(true)}
             onOpenHistory={() => setHistoryModalOpen(true)}
             onOpenTemplates={() => setTemplatesModalOpen(true)}
