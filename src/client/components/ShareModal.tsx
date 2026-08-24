@@ -19,6 +19,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { ProjectMetadata } from '../../shared/types.js';
+import { GitHubConnectModal } from './GitHubConnectModal.js';
 
 interface ShareModalProps {
   isOpen: boolean;
@@ -40,9 +41,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
 
   // GitHub Auth State
   const [githubUser, setGithubUser] = useState<GitHubUser | null>(null);
-  const [tokenInput, setTokenInput] = useState('');
-  const [authenticating, setAuthenticating] = useState(false);
-  const [showTokenPrompt, setShowTokenPrompt] = useState(false);
+  const [showConnectModal, setShowConnectModal] = useState(false);
 
   // GitHub Auto-Repo & Invite State
   const [creatingRepo, setCreatingRepo] = useState(false);
@@ -103,34 +102,6 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
       console.error('Error generating invite:', err);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleSaveToken = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tokenInput.trim()) return;
-
-    setAuthenticating(true);
-    setStatusMsg(null);
-    try {
-      const res = await fetch('/api/github/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: tokenInput.trim() }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setGithubUser(data.user);
-        setShowTokenPrompt(false);
-        setTokenInput('');
-        setStatusMsg({ type: 'success', text: `Connected as @${data.user.login}!` });
-      } else {
-        setStatusMsg({ type: 'error', text: data.error || 'Invalid token.' });
-      }
-    } catch (err: any) {
-      setStatusMsg({ type: 'error', text: err.message || 'Connection failed.' });
-    } finally {
-      setAuthenticating(false);
     }
   };
 
@@ -314,12 +285,12 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
             </p>
           </div>
 
-          {/* Method 2: Automated Zero-Touch GitHub Cloud Sync */}
+          {/* Method 2: Project-Specific Private GitHub Cloud Sync */}
           <div className="glass-panel p-4 rounded-xl border border-dark-border bg-dark-bg/60 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-mono font-semibold uppercase text-white flex items-center space-x-1.5">
                 <Github className="w-3.5 h-3.5 text-leaf-400" />
-                <span>Automated GitHub Cloud Sync</span>
+                <span>GitHub Cloud Sync (This Project)</span>
               </span>
               {currentGitRemote ? (
                 <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 flex items-center space-x-1">
@@ -328,48 +299,29 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
                 </span>
               ) : (
                 <span className="text-[10px] font-mono text-dark-muted bg-dark-surface px-2 py-0.5 rounded border border-dark-border">
-                  Not Linked
+                  Local-only
                 </span>
               )}
             </div>
 
-            {/* Step 1: Connect GitHub Token if not already connected */}
+            {/* If GitHub is not connected globally */}
             {!githubUser ? (
-              <div className="space-y-2.5 p-3 rounded-lg bg-dark-surface/60 border border-dark-border">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-medium text-white flex items-center space-x-1.5">
+              <div className="p-3 rounded-lg bg-dark-surface/60 border border-dark-border flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-semibold text-white flex items-center space-x-1.5">
                     <Lock className="w-3.5 h-3.5 text-leaf-400" />
-                    <span>Connect GitHub Account (1-Time)</span>
+                    <span>Connect GitHub Account</span>
                   </div>
-                  <a
-                    href="https://github.com/settings/tokens/new?scopes=repo&description=GitLeaf+App"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[11px] text-leaf-400 hover:underline flex items-center space-x-0.5 font-mono"
-                  >
-                    <span>Create Token</span>
-                    <ArrowUpRight className="w-3 h-3" />
-                  </a>
+                  <p className="text-[11px] text-dark-muted">
+                    Connect once on the Home Page to enable 1-click private repositories & cloud sync.
+                  </p>
                 </div>
-                <p className="text-[11px] text-dark-muted leading-relaxed">
-                  Allows GitLeaf to automatically create private repositories & invite collaborators with 1 click.
-                </p>
-                <form onSubmit={handleSaveToken} className="flex items-center space-x-2 pt-1">
-                  <input
-                    type="password"
-                    placeholder="ghp_xxxxxxxxxxxx"
-                    value={tokenInput}
-                    onChange={(e) => setTokenInput(e.target.value)}
-                    className="flex-1 bg-dark-bg border border-dark-border rounded-lg px-2.5 py-1.5 text-xs text-white font-mono placeholder:text-dark-muted focus:outline-none focus:border-leaf-500/50"
-                  />
-                  <button
-                    type="submit"
-                    disabled={authenticating || !tokenInput.trim()}
-                    className="px-3 py-1.5 rounded-lg bg-leaf-500 hover:bg-leaf-600 active:bg-leaf-700 text-white text-xs font-mono font-medium shrink-0 disabled:opacity-50 transition-all flex items-center space-x-1"
-                  >
-                    {authenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>Connect</span>}
-                  </button>
-                </form>
+                <button
+                  onClick={() => setShowConnectModal(true)}
+                  className="px-3.5 py-1.5 rounded-lg bg-leaf-500 hover:bg-leaf-600 text-white text-xs font-mono font-medium shrink-0 shadow-md shadow-leaf-500/20 transition-all"
+                >
+                  Connect
+                </button>
               </div>
             ) : (
               /* Connected GitHub User Controls */
@@ -384,12 +336,12 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
                     <span className="text-xs font-medium text-white">@{githubUser.login}</span>
                   </div>
                   <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
-                    Connected
+                    Global Account Active
                   </span>
                 </div>
 
                 {!currentGitRemote ? (
-                  /* 1-Click Auto-Create Private Repo */
+                  /* 1-Click Auto-Create Private Repo for THIS Paper */
                   <div className="p-3 rounded-lg bg-leaf-500/10 border border-leaf-500/30 flex items-center justify-between">
                     <div className="space-y-0.5">
                       <div className="text-xs font-semibold text-leaf-300 flex items-center space-x-1.5">
@@ -397,7 +349,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
                         <span>1-Click Private Repo Creation</span>
                       </div>
                       <p className="text-[11px] text-dark-muted">
-                        GitLeaf will create a private repo & push this paper automatically.
+                        GitLeaf will create a dedicated private repo for this paper automatically.
                       </p>
                     </div>
                     <button
@@ -421,7 +373,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
                     <form onSubmit={handleInviteCoauthor} className="space-y-1.5">
                       <label className="text-xs font-mono text-dark-muted flex items-center space-x-1">
                         <UserPlus className="w-3.5 h-3.5 text-leaf-400" />
-                        <span>Auto-Invite Co-Author by GitHub Username</span>
+                        <span>Optional: Invite Co-Author by GitHub Username</span>
                       </label>
                       <div className="flex items-center space-x-2">
                         <input
@@ -543,6 +495,16 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
           </div>
         </div>
       </div>
+
+      {/* GitHub 1-Time Setup Modal */}
+      <GitHubConnectModal
+        isOpen={showConnectModal}
+        onClose={() => setShowConnectModal(false)}
+        onSuccess={() => {
+          fetchGitHubUser();
+          fetchGitStatus();
+        }}
+      />
     </div>
   );
 };

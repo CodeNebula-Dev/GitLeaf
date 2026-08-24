@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Plus,
   Search,
@@ -17,9 +17,13 @@ import {
   ArrowRight,
   Upload,
   Sparkles,
+  Github,
+  CheckCircle2,
+  Lock,
 } from 'lucide-react';
 import { ProjectMetadata } from '../../shared/types.js';
 import { UserProfile } from '../hooks/useUser.js';
+import { GitHubConnectModal } from './GitHubConnectModal.js';
 
 interface DashboardProps {
   projects: ProjectMetadata[];
@@ -43,7 +47,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [joinLoading, setJoinLoading] = useState(false);
   const [joinError, setJoinError] = useState('');
   const [importing, setImporting] = useState(false);
+  const [githubUser, setGithubUser] = useState<{ login: string; avatar_url: string; name: string } | null>(null);
+  const [githubModalOpen, setGithubModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchGitHubUser = async () => {
+    try {
+      const res = await fetch('/api/github/user');
+      if (res.ok) {
+        const data = await res.json();
+        setGithubUser(data.user);
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchGitHubUser();
+  }, []);
 
   const filteredProjects = projects.filter((p) =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -140,6 +160,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         {/* Right User & Actions */}
         <div className="flex items-center space-x-3">
+          {/* GitHub Connection Badge / Button */}
+          <button
+            onClick={() => setGithubModalOpen(true)}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-dark-hover hover:bg-dark-border text-white text-xs border border-dark-border transition-colors font-mono"
+            title="GitHub Account for Cloud Sync"
+          >
+            <Github className="w-3.5 h-3.5 text-leaf-400" />
+            {githubUser ? (
+              <span className="flex items-center space-x-1">
+                <span>@{githubUser.login}</span>
+                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+              </span>
+            ) : (
+              <span className="text-dark-muted hover:text-white">Connect GitHub</span>
+            )}
+          </button>
+
           {/* Import Paper Button */}
           <input
             type="file"
@@ -359,6 +396,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
           )}
         </div>
       </main>
+
+      {/* GitHub 1-Time Setup Modal */}
+      <GitHubConnectModal
+        isOpen={githubModalOpen}
+        onClose={() => setGithubModalOpen(false)}
+        onSuccess={fetchGitHubUser}
+      />
     </div>
   );
 };
