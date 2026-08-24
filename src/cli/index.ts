@@ -3,6 +3,7 @@ import { LatexCompiler } from '../server/compiler/runner.js';
 import { HistoryTracker } from '../server/git/history.js';
 import { GitSync } from '../server/git/sync.js';
 import { InviteManager } from '../server/sync/invite.js';
+import { GitHubService } from '../server/git/github.js';
 import { printCliBanner, ANSI } from './banner.js';
 import { detectSystemTeX } from './system.js';
 import { DEFAULT_CLIENT_PORT, DEFAULT_SERVER_PORT } from '../shared/constants.js';
@@ -14,6 +15,7 @@ const projectManager = new ProjectManager();
 const compiler = new LatexCompiler();
 const historyTracker = new HistoryTracker();
 const inviteManager = new InviteManager(projectManager);
+const githubService = new GitHubService();
 
 function printHelp() {
   const { green, orange, dim, white, bold, reset, cyan } = ANSI;
@@ -26,6 +28,7 @@ ${bold}USAGE:${reset}
   ${cyan}npm run cli -- <command> [arguments]${reset}
 
 ${bold}COLLABORATION & SYNC:${reset}
+  ${green}auth${reset}            ${white}<github-token>${reset}     Connect GitHub account for zero-touch cloud sync
   ${green}share, invite${reset}   ${white}[project]${reset}          Generate a 6-character pairing code for co-authors
   ${green}join${reset}            ${white}<code/url> [name]${reset}    Clone shared paper locally to disk & join
   ${green}push${reset}            ${white}[project] [message]${reset}  Commit & push changes to linked Git remote (GitHub)
@@ -82,6 +85,33 @@ async function main() {
         compiler: tex.description,
         collaborators: 1,
       });
+      break;
+    }
+
+    case 'auth':
+    case 'login': {
+      const token = args[1];
+      if (!token) {
+        const user = await githubService.getAuthenticatedUser();
+        if (user) {
+          console.log(`\n${green}✓ Currently authenticated as @${user.login} (${user.name})${reset}\n`);
+        } else {
+          console.log(`\n${bold}Connect GitHub Account:${reset}`);
+          console.log(`  ${cyan}gitleaf auth <github-token>${reset}`);
+          console.log(`\n${dim}Generate a token in 10s at: https://github.com/settings/tokens/new?scopes=repo${reset}\n`);
+        }
+        return;
+      }
+
+      console.log(`\n${dim}Verifying GitHub token...${reset}`);
+      const user = await githubService.getAuthenticatedUser(token.trim());
+      if (user) {
+        githubService.saveToken(token.trim());
+        console.log(`${green}✓ Successfully connected GitHub account as @${user.login} (${user.name})!${reset}`);
+        console.log(`${dim}GitLeaf will now automatically create private repos and invite collaborators with 0 manual steps.${reset}\n`);
+      } else {
+        console.log(`${orange}✗ Invalid GitHub token. Make sure it has "repo" permissions.${reset}\n`);
+      }
       break;
     }
 

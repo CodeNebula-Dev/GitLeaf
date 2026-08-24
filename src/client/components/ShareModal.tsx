@@ -8,13 +8,15 @@ import {
   Key,
   Download,
   PackageCheck,
-  GitBranch,
   ArrowUpRight,
   ArrowDownLeft,
   Loader2,
   Github,
   CheckCircle2,
   AlertCircle,
+  Sparkles,
+  UserPlus,
+  Lock,
 } from 'lucide-react';
 import { ProjectMetadata } from '../../shared/types.js';
 
@@ -24,18 +26,31 @@ interface ShareModalProps {
   project: ProjectMetadata | null;
 }
 
+interface GitHubUser {
+  login: string;
+  name: string;
+  avatar_url: string;
+}
+
 export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project }) => {
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [shortCode, setShortCode] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
-  // GitHub Remote State
-  const [remoteUrlInput, setRemoteUrlInput] = useState('');
-  const [linkingRemote, setLinkingRemote] = useState(false);
-  const [gitStatusMsg, setGitStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [syncingGit, setSyncingGit] = useState<'push' | 'pull' | null>(null);
+  // GitHub Auth State
+  const [githubUser, setGithubUser] = useState<GitHubUser | null>(null);
+  const [tokenInput, setTokenInput] = useState('');
+  const [authenticating, setAuthenticating] = useState(false);
+  const [showTokenPrompt, setShowTokenPrompt] = useState(false);
+
+  // GitHub Auto-Repo & Invite State
+  const [creatingRepo, setCreatingRepo] = useState(false);
+  const [coauthorUsername, setCoauthorUsername] = useState('');
+  const [invitingCoauthor, setInvitingCoauthor] = useState(false);
   const [currentGitRemote, setCurrentGitRemote] = useState<string | undefined>(project?.gitRemote);
+  const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [syncingGit, setSyncingGit] = useState<'push' | 'pull' | null>(null);
 
   useEffect(() => {
     if (isOpen && project) {
@@ -43,11 +58,22 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
       if (!shortCode) {
         generateInvite();
       }
+      fetchGitHubUser();
       fetchGitStatus();
     }
   }, [isOpen, project]);
 
   if (!isOpen || !project) return null;
+
+  const fetchGitHubUser = async () => {
+    try {
+      const res = await fetch('/api/github/user');
+      if (res.ok) {
+        const data = await res.json();
+        setGithubUser(data.user);
+      }
+    } catch {}
+  };
 
   const fetchGitStatus = async () => {
     try {
@@ -80,38 +106,86 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
     }
   };
 
-  const handleLinkRemote = async (e: React.FormEvent) => {
+  const handleSaveToken = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!remoteUrlInput.trim()) return;
+    if (!tokenInput.trim()) return;
 
-    setLinkingRemote(true);
-    setGitStatusMsg(null);
+    setAuthenticating(true);
+    setStatusMsg(null);
     try {
-      const res = await fetch(`/api/projects/${project.id}/git/link-remote`, {
+      const res = await fetch('/api/github/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ remoteUrl: remoteUrlInput.trim() }),
+        body: JSON.stringify({ token: tokenInput.trim() }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setCurrentGitRemote(remoteUrlInput.trim());
-        setGitStatusMsg({ type: 'success', text: 'Linked & pushed to GitHub!' });
-        setRemoteUrlInput('');
-        // Regenerate invite so the PIN includes the gitRemote
-        generateInvite();
+        setGithubUser(data.user);
+        setShowTokenPrompt(false);
+        setTokenInput('');
+        setStatusMsg({ type: 'success', text: `Connected as @${data.user.login}!` });
       } else {
-        setGitStatusMsg({ type: 'error', text: data.error || 'Failed to link remote.' });
+        setStatusMsg({ type: 'error', text: data.error || 'Invalid token.' });
       }
     } catch (err: any) {
-      setGitStatusMsg({ type: 'error', text: err.message || 'Connection error.' });
+      setStatusMsg({ type: 'error', text: err.message || 'Connection failed.' });
     } finally {
-      setLinkingRemote(false);
+      setAuthenticating(false);
+    }
+  };
+
+  const handleAutoCreateRepo = async () => {
+    setCreatingRepo(true);
+    setStatusMsg(null);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/github/auto-create`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCurrentGitRemote(data.cloneUrl);
+        setStatusMsg({ type: 'success', text: data.message });
+        generateInvite();
+      } else {
+        setStatusMsg({ type: 'error', text: data.error || 'Failed to auto-create repo.' });
+      }
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: err.message || 'Error creating repo.' });
+    } finally {
+      setCreatingRepo(false);
+    }
+  };
+
+  const handleInviteCoauthor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!coauthorUsername.trim()) return;
+
+    setInvitingCoauthor(true);
+    setStatusMsg(null);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/github/invite-collaborator`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: coauthorUsername.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatusMsg({ type: 'success', text: data.message });
+        setCoauthorUsername('');
+        if (data.shortCode) setShortCode(data.shortCode);
+      } else {
+        setStatusMsg({ type: 'error', text: data.error || 'Failed to invite collaborator.' });
+      }
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: err.message || 'Error inviting user.' });
+    } finally {
+      setInvitingCoauthor(false);
     }
   };
 
   const handleGitPush = async () => {
     setSyncingGit('push');
-    setGitStatusMsg(null);
+    setStatusMsg(null);
     try {
       const res = await fetch(`/api/projects/${project.id}/git/push`, {
         method: 'POST',
@@ -120,12 +194,12 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
       });
       const data = await res.json();
       if (data.success) {
-        setGitStatusMsg({ type: 'success', text: 'Pushed latest changes to GitHub!' });
+        setStatusMsg({ type: 'success', text: 'Pushed latest changes to GitHub!' });
       } else {
-        setGitStatusMsg({ type: 'error', text: data.message || 'Push failed.' });
+        setStatusMsg({ type: 'error', text: data.message || 'Push failed.' });
       }
     } catch (err: any) {
-      setGitStatusMsg({ type: 'error', text: err.message || 'Push error.' });
+      setStatusMsg({ type: 'error', text: err.message || 'Push error.' });
     } finally {
       setSyncingGit(null);
     }
@@ -133,19 +207,19 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
 
   const handleGitPull = async () => {
     setSyncingGit('pull');
-    setGitStatusMsg(null);
+    setStatusMsg(null);
     try {
       const res = await fetch(`/api/projects/${project.id}/git/pull`, {
         method: 'POST',
       });
       const data = await res.json();
       if (data.success) {
-        setGitStatusMsg({ type: 'success', text: 'Pulled latest changes from GitHub!' });
+        setStatusMsg({ type: 'success', text: 'Pulled latest changes from GitHub!' });
       } else {
-        setGitStatusMsg({ type: 'error', text: data.message || 'Pull failed.' });
+        setStatusMsg({ type: 'error', text: data.message || 'Pull failed.' });
       }
     } catch (err: any) {
-      setGitStatusMsg({ type: 'error', text: err.message || 'Pull error.' });
+      setStatusMsg({ type: 'error', text: err.message || 'Pull error.' });
     } finally {
       setSyncingGit(null);
     }
@@ -202,7 +276,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
                 <span>Pairing Code</span>
               </span>
               <span className="text-[10px] font-mono text-leaf-400/80 bg-leaf-500/10 px-2 py-0.5 rounded border border-leaf-500/20">
-                Direct Sync
+                Instant Clone
               </span>
             </div>
 
@@ -210,7 +284,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
               {loading ? (
                 <div className="flex items-center space-x-2 text-dark-muted text-xs font-mono">
                   <Loader2 className="w-4 h-4 animate-spin text-leaf-400" />
-                  <span>Generating pairing code...</span>
+                  <span>Generating code...</span>
                 </div>
               ) : (
                 <span className="font-mono text-xl font-bold text-white tracking-widest selection:bg-leaf-500">
@@ -240,95 +314,178 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
             </p>
           </div>
 
-          {/* Method 2: GitHub Remote (Offline Cross-Machine Sync) */}
+          {/* Method 2: Automated Zero-Touch GitHub Cloud Sync */}
           <div className="glass-panel p-4 rounded-xl border border-dark-border bg-dark-bg/60 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-mono font-semibold uppercase text-white flex items-center space-x-1.5">
                 <Github className="w-3.5 h-3.5 text-leaf-400" />
-                <span>GitHub Remote Sync</span>
+                <span>Automated GitHub Cloud Sync</span>
               </span>
               {currentGitRemote ? (
                 <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 flex items-center space-x-1">
                   <CheckCircle2 className="w-3 h-3" />
-                  <span>Linked</span>
+                  <span>Private Repo Active</span>
                 </span>
               ) : (
                 <span className="text-[10px] font-mono text-dark-muted bg-dark-surface px-2 py-0.5 rounded border border-dark-border">
-                  Local-only
+                  Not Linked
                 </span>
               )}
             </div>
 
-            {currentGitRemote ? (
-              <div className="space-y-2.5">
-                <div className="p-2.5 bg-dark-bg rounded-lg border border-dark-border text-xs font-mono text-dark-muted truncate">
-                  <span className="text-dark-text">{currentGitRemote}</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={handleGitPush}
-                    disabled={syncingGit !== null}
-                    className="flex-1 px-3 py-1.5 rounded-lg bg-dark-surface hover:bg-dark-hover text-white text-xs font-mono flex items-center justify-center space-x-1.5 border border-dark-border transition-colors disabled:opacity-50"
+            {/* Step 1: Connect GitHub Token if not already connected */}
+            {!githubUser ? (
+              <div className="space-y-2.5 p-3 rounded-lg bg-dark-surface/60 border border-dark-border">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-medium text-white flex items-center space-x-1.5">
+                    <Lock className="w-3.5 h-3.5 text-leaf-400" />
+                    <span>Connect GitHub Account (1-Time)</span>
+                  </div>
+                  <a
+                    href="https://github.com/settings/tokens/new?scopes=repo&description=GitLeaf+App"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[11px] text-leaf-400 hover:underline flex items-center space-x-0.5 font-mono"
                   >
-                    {syncingGit === 'push' ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-leaf-400" />
-                    ) : (
-                      <ArrowUpRight className="w-3.5 h-3.5 text-leaf-400" />
-                    )}
-                    <span>Push to GitHub</span>
-                  </button>
-                  <button
-                    onClick={handleGitPull}
-                    disabled={syncingGit !== null}
-                    className="flex-1 px-3 py-1.5 rounded-lg bg-dark-surface hover:bg-dark-hover text-white text-xs font-mono flex items-center justify-center space-x-1.5 border border-dark-border transition-colors disabled:opacity-50"
-                  >
-                    {syncingGit === 'pull' ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
-                    ) : (
-                      <ArrowDownLeft className="w-3.5 h-3.5 text-cyan-400" />
-                    )}
-                    <span>Pull from GitHub</span>
-                  </button>
+                    <span>Create Token</span>
+                    <ArrowUpRight className="w-3 h-3" />
+                  </a>
                 </div>
-              </div>
-            ) : (
-              <form onSubmit={handleLinkRemote} className="space-y-2">
-                <p className="text-[11px] text-dark-muted">
-                  Link a private GitHub/GitLab repo to enable automatic cross-laptop sync when users are offline at different times:
+                <p className="text-[11px] text-dark-muted leading-relaxed">
+                  Allows GitLeaf to automatically create private repositories & invite collaborators with 1 click.
                 </p>
-                <div className="flex items-center space-x-2">
+                <form onSubmit={handleSaveToken} className="flex items-center space-x-2 pt-1">
                   <input
-                    type="text"
-                    placeholder="https://github.com/user/paper.git"
-                    value={remoteUrlInput}
-                    onChange={(e) => setRemoteUrlInput(e.target.value)}
+                    type="password"
+                    placeholder="ghp_xxxxxxxxxxxx"
+                    value={tokenInput}
+                    onChange={(e) => setTokenInput(e.target.value)}
                     className="flex-1 bg-dark-bg border border-dark-border rounded-lg px-2.5 py-1.5 text-xs text-white font-mono placeholder:text-dark-muted focus:outline-none focus:border-leaf-500/50"
                   />
                   <button
                     type="submit"
-                    disabled={linkingRemote || !remoteUrlInput.trim()}
+                    disabled={authenticating || !tokenInput.trim()}
                     className="px-3 py-1.5 rounded-lg bg-leaf-500 hover:bg-leaf-600 active:bg-leaf-700 text-white text-xs font-mono font-medium shrink-0 disabled:opacity-50 transition-all flex items-center space-x-1"
                   >
-                    {linkingRemote ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>Link</span>}
+                    {authenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>Connect</span>}
                   </button>
+                </form>
+              </div>
+            ) : (
+              /* Connected GitHub User Controls */
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-2 rounded-lg bg-dark-surface/40 border border-dark-border">
+                  <div className="flex items-center space-x-2">
+                    <img
+                      src={githubUser.avatar_url}
+                      alt={githubUser.login}
+                      className="w-5 h-5 rounded-full border border-dark-border"
+                    />
+                    <span className="text-xs font-medium text-white">@{githubUser.login}</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
+                    Connected
+                  </span>
                 </div>
-              </form>
+
+                {!currentGitRemote ? (
+                  /* 1-Click Auto-Create Private Repo */
+                  <div className="p-3 rounded-lg bg-leaf-500/10 border border-leaf-500/30 flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-semibold text-leaf-300 flex items-center space-x-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-leaf-400" />
+                        <span>1-Click Private Repo Creation</span>
+                      </div>
+                      <p className="text-[11px] text-dark-muted">
+                        GitLeaf will create a private repo & push this paper automatically.
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleAutoCreateRepo}
+                      disabled={creatingRepo}
+                      className="px-3 py-1.5 rounded-lg bg-leaf-500 hover:bg-leaf-600 active:bg-leaf-700 text-white text-xs font-mono font-medium shrink-0 disabled:opacity-50 transition-all flex items-center space-x-1.5"
+                    >
+                      {creatingRepo ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Creating...</span>
+                        </>
+                      ) : (
+                        <span>Auto-Create</span>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  /* Auto-Invite Co-Author & Sync Buttons */
+                  <div className="space-y-3">
+                    <form onSubmit={handleInviteCoauthor} className="space-y-1.5">
+                      <label className="text-xs font-mono text-dark-muted flex items-center space-x-1">
+                        <UserPlus className="w-3.5 h-3.5 text-leaf-400" />
+                        <span>Auto-Invite Co-Author by GitHub Username</span>
+                      </label>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="text"
+                          placeholder="GitHub username (e.g. alice)"
+                          value={coauthorUsername}
+                          onChange={(e) => setCoauthorUsername(e.target.value)}
+                          className="flex-1 bg-dark-bg border border-dark-border rounded-lg px-2.5 py-1.5 text-xs text-white font-mono placeholder:text-dark-muted focus:outline-none focus:border-leaf-500/50"
+                        />
+                        <button
+                          type="submit"
+                          disabled={invitingCoauthor || !coauthorUsername.trim()}
+                          className="px-3 py-1.5 rounded-lg bg-dark-surface hover:bg-dark-hover text-leaf-400 border border-dark-border text-xs font-mono font-medium shrink-0 disabled:opacity-50 transition-all flex items-center space-x-1"
+                        >
+                          {invitingCoauthor ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>Invite</span>}
+                        </button>
+                      </div>
+                    </form>
+
+                    <div className="flex items-center space-x-2 pt-1">
+                      <button
+                        onClick={handleGitPush}
+                        disabled={syncingGit !== null}
+                        className="flex-1 px-3 py-1.5 rounded-lg bg-dark-surface hover:bg-dark-hover text-white text-xs font-mono flex items-center justify-center space-x-1.5 border border-dark-border transition-colors disabled:opacity-50"
+                      >
+                        {syncingGit === 'push' ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-leaf-400" />
+                        ) : (
+                          <ArrowUpRight className="w-3.5 h-3.5 text-leaf-400" />
+                        )}
+                        <span>Push Changes</span>
+                      </button>
+                      <button
+                        onClick={handleGitPull}
+                        disabled={syncingGit !== null}
+                        className="flex-1 px-3 py-1.5 rounded-lg bg-dark-surface hover:bg-dark-hover text-white text-xs font-mono flex items-center justify-center space-x-1.5 border border-dark-border transition-colors disabled:opacity-50"
+                      >
+                        {syncingGit === 'pull' ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                        ) : (
+                          <ArrowDownLeft className="w-3.5 h-3.5 text-cyan-400" />
+                        )}
+                        <span>Pull Changes</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
-            {gitStatusMsg && (
+            {statusMsg && (
               <div
                 className={`text-[11px] font-mono flex items-center space-x-1.5 p-2 rounded-lg ${
-                  gitStatusMsg.type === 'success'
+                  statusMsg.type === 'success'
                     ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'
                     : 'bg-red-500/10 text-red-300 border border-red-500/20'
                 }`}
               >
-                {gitStatusMsg.type === 'success' ? (
+                {statusMsg.type === 'success' ? (
                   <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                 ) : (
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 )}
-                <span>{gitStatusMsg.text}</span>
+                <span>{statusMsg.text}</span>
               </div>
             )}
           </div>
