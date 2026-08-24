@@ -459,7 +459,7 @@ app.post('/api/github/auth', async (req, res) => {
     return res.status(401).json({ error: `GitHub rejected token: ${result.error || 'Bad credentials'}. Please verify token scopes.` });
   }
 
-  githubService.saveToken(token);
+  githubService.saveToken(token, result.user);
   res.json({ success: true, user: result.user });
 });
 
