@@ -415,6 +415,20 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     };
   }, [projectId, filePath, user?.name, user?.color]);
 
+  // Keep editor in sync when content updates externally (from background git pull / sync-check)
+  useEffect(() => {
+    if (ydocRef.current && content !== undefined) {
+      const yText = ydocRef.current.getText('monaco');
+      const currentVal = yText.toString();
+      if (content && content !== currentVal) {
+        ydocRef.current.transact(() => {
+          yText.delete(0, yText.length);
+          yText.insert(0, content);
+        });
+      }
+    }
+  }, [content]);
+
   // Jump to Line when targetJumpLine is set
   useEffect(() => {
     if (editorRef.current && targetJumpLine) {

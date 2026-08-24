@@ -1,4 +1,4 @@
-import { execSync, exec } from 'child_process';
+import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -68,12 +68,19 @@ export class GitSync {
 .DS_Store
 Thumbs.db
 
-# GitLeaf internal
+# GitLeaf local config & cache (never sync machine-specific absolute paths)
+.gitleaf.json
+.gitleaf_auth.json
 .gitleaf_history/
 `;
       const ignorePath = path.join(projectRoot, '.gitignore');
       if (!fs.existsSync(ignorePath)) {
         fs.writeFileSync(ignorePath, gitignore, 'utf-8');
+      } else {
+        const existing = fs.readFileSync(ignorePath, 'utf-8');
+        if (!existing.includes('.gitleaf.json')) {
+          fs.appendFileSync(ignorePath, '\n.gitleaf.json\n.gitleaf_auth.json\n.gitleaf_history/\n', 'utf-8');
+        }
       }
       return true;
     } catch (err: any) {
@@ -149,6 +156,11 @@ Thumbs.db
   public static commit(projectRoot: string, message: string = 'GitLeaf auto-save'): boolean {
     if (!this.isGitRepo(projectRoot)) return false;
     try {
+      // Untrack machine-specific .gitleaf.json if previously tracked
+      try {
+        execSync('git rm --cached .gitleaf.json', { cwd: projectRoot, stdio: 'pipe', env: this.GIT_ENV });
+      } catch {}
+
       execSync('git add -A', { cwd: projectRoot, stdio: 'pipe', env: this.GIT_ENV });
 
       // Check if there are staged changes
@@ -217,11 +229,19 @@ Thumbs.db
         }).toString().trim() || 'main';
       } catch {}
 
-      execSync(`git pull origin ${branch} --rebase=false --no-edit`, {
-        cwd: projectRoot, stdio: 'pipe', env: this.GIT_ENV,
-        timeout: 30000,
-      });
-      return true;
+      try {
+        execSync(`git pull origin ${branch} --rebase=true --autostash`, {
+          cwd: projectRoot, stdio: 'pipe', env: this.GIT_ENV,
+          timeout: 30000,
+        });
+        return true;
+      } catch {
+        execSync(`git pull origin ${branch} --no-edit`, {
+          cwd: projectRoot, stdio: 'pipe', env: this.GIT_ENV,
+          timeout: 30000,
+        });
+        return true;
+      }
     } catch (err: any) {
       console.warn('Pull did not succeed (may be first push):', err.message);
       return false;
