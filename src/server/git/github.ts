@@ -117,11 +117,13 @@ export class GitHubService {
 
     for (const authHeader of authHeaders) {
       try {
+        // 1. Try standard /user endpoint
         const res = await fetch('https://api.github.com/user', {
           headers: {
             Authorization: authHeader,
-            Accept: 'application/vnd.github.v3+json',
-            'User-Agent': 'GitLeaf/1.0 (https://github.com/CodeNebula-Dev/GitLeaf)',
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+            'User-Agent': 'GitLeaf/1.0',
           },
         });
 
@@ -133,8 +135,32 @@ export class GitHubService {
               login: data.login,
               id: data.id,
               name: data.name || data.login,
-              avatar_url: data.avatar_url,
+              avatar_url: data.avatar_url || 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png',
               email: data.email,
+            },
+          };
+        }
+
+        // 2. If /user is restricted (e.g. fine-grained token), fallback to /user/repos to check permissions
+        const repoRes = await fetch('https://api.github.com/user/repos?per_page=1&type=owner', {
+          headers: {
+            Authorization: authHeader,
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+            'User-Agent': 'GitLeaf/1.0',
+          },
+        });
+
+        if (repoRes.ok) {
+          const repos = await repoRes.json();
+          const owner = repos[0]?.owner;
+          return {
+            success: true,
+            user: {
+              login: owner?.login || 'github-user',
+              id: owner?.id || 1,
+              name: owner?.login || 'GitHub User',
+              avatar_url: owner?.avatar_url || 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png',
             },
           };
         }
