@@ -256,7 +256,10 @@ export class InviteManager {
     const success = GitSync.clone(invite.gitRemote, projPath);
 
     if (!success) {
-      throw new Error(`Failed to clone from ${invite.gitRemote}. Check your Git credentials.`);
+      throw new Error(
+        `Failed to clone from ${invite.gitRemote}. If this is a private GitHub repository, ` +
+        `please make sure you have connected your GitHub account on the Home Page and accepted the repository invitation on GitHub.`
+      );
     }
 
     // Read or create .gitleaf.json metadata

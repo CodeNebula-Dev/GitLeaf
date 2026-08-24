@@ -1,6 +1,7 @@
 import { execSync, exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 
 /**
  * GitSync — Automated Git operations for GitLeaf projects.
@@ -11,7 +12,7 @@ import path from 'path';
 export class GitSync {
   private static readonly GIT_ENV = {
     ...process.env,
-    GIT_TERMINAL_PROMPT: '0', // never prompt for credentials
+    GIT_TERMINAL_PROMPT: '0', // never prompt for interactive credentials
     GIT_AUTHOR_NAME: 'GitLeaf',
     GIT_AUTHOR_EMAIL: 'gitleaf@local',
     GIT_COMMITTER_NAME: 'GitLeaf',
@@ -44,7 +45,6 @@ export class GitSync {
     if (this.isGitRepo(projectRoot)) return true;
     try {
       execSync('git init', { cwd: projectRoot, stdio: 'pipe', env: this.GIT_ENV });
-      // Create .gitignore for LaTeX artifacts
       const gitignore = `# LaTeX build artifacts
 *.aux
 *.log
@@ -83,6 +83,26 @@ Thumbs.db
   }
 
   /**
+   * Inject stored GitHub authentication token into remote URL if available
+   */
+  public static getAuthenticatedUrl(remoteUrl: string): string {
+    if (!remoteUrl) return remoteUrl;
+    try {
+      const configPath = path.join(os.homedir(), '.gitleaf_auth.json');
+      let token = process.env.GITHUB_TOKEN;
+      if (!token && fs.existsSync(configPath)) {
+        const data = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        token = data.token;
+      }
+      if (token && remoteUrl.includes('github.com') && !remoteUrl.includes('@')) {
+        const cleanToken = token.trim().replace(/^['"]|['"]$/g, '');
+        return remoteUrl.replace('https://', `https://x-access-token:${cleanToken}@`);
+      }
+    } catch {}
+    return remoteUrl;
+  }
+
+  /**
    * Set the remote URL for a project. Creates or updates the 'origin' remote.
    */
   public static setRemote(projectRoot: string, remoteUrl: string): boolean {
@@ -90,14 +110,14 @@ Thumbs.db
       this.initRepo(projectRoot);
     }
     try {
-      // Check if remote already exists
+      const authUrl = this.getAuthenticatedUrl(remoteUrl);
       const existing = this.getRemote(projectRoot);
       if (existing) {
-        execSync(`git remote set-url origin "${remoteUrl}"`, {
+        execSync(`git remote set-url origin "${authUrl}"`, {
           cwd: projectRoot, stdio: 'pipe', env: this.GIT_ENV,
         });
       } else {
-        execSync(`git remote add origin "${remoteUrl}"`, {
+        execSync(`git remote add origin "${authUrl}"`, {
           cwd: projectRoot, stdio: 'pipe', env: this.GIT_ENV,
         });
       }
@@ -131,13 +151,12 @@ Thumbs.db
     try {
       execSync('git add -A', { cwd: projectRoot, stdio: 'pipe', env: this.GIT_ENV });
 
-      // Check if there are changes to commit
+      // Check if there are staged changes
       try {
         execSync('git diff --cached --quiet', { cwd: projectRoot, stdio: 'pipe', env: this.GIT_ENV });
-        // If no error, there are no staged changes — nothing to commit
         return true;
       } catch {
-        // There ARE staged changes — commit them
+        // Staged changes exist — commit them
       }
 
       execSync(`git commit -m "${message.replace(/"/g, '\\"')}"`, {
@@ -156,7 +175,6 @@ Thumbs.db
   public static push(projectRoot: string): boolean {
     if (!this.isGitRepo(projectRoot) || !this.getRemote(projectRoot)) return false;
     try {
-      // Detect current branch
       let branch = 'main';
       try {
         branch = execSync('git rev-parse --abbrev-ref HEAD', {
@@ -194,7 +212,6 @@ Thumbs.db
       });
       return true;
     } catch (err: any) {
-      // If pull fails (e.g., no upstream yet), that's OK on first run
       console.warn('Pull did not succeed (may be first push):', err.message);
       return false;
     }
@@ -205,7 +222,8 @@ Thumbs.db
    */
   public static clone(remoteUrl: string, targetDir: string): boolean {
     try {
-      execSync(`git clone "${remoteUrl}" "${targetDir}"`, {
+      const authUrl = this.getAuthenticatedUrl(remoteUrl);
+      execSync(`git clone "${authUrl}" "${targetDir}"`, {
         stdio: 'pipe', env: this.GIT_ENV,
         timeout: 60000,
       });
@@ -234,8 +252,8 @@ Thumbs.db
   public static commitAndPushAsync(projectRoot: string, message: string = 'GitLeaf auto-save'): void {
     if (!this.getRemote(projectRoot)) return;
 
-    // Run in background — don't block the server
     try {
+      const authUrl = this.getAuthenticatedUrl(this.getRemote(projectRoot) || '');
       const cmd = `cd "${projectRoot}" && git add -A && git diff --cached --quiet || git commit -m "${message.replace(/"/g, '\\"')}" && git push -u origin main 2>/dev/null || true`;
       exec(cmd, { env: this.GIT_ENV, timeout: 30000 }, (err) => {
         if (err) {
