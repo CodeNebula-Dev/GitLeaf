@@ -132,6 +132,12 @@ app.put('/api/projects/:id/file-content', (req, res) => {
   }
   try {
     projectManager.writeFile(project.rootPath, filePath, content);
+
+    // Auto-commit & push to GitHub in background
+    if (project.gitRemote || GitSync.getRemote(project.rootPath)) {
+      GitSync.commitAndPushAsync(project.rootPath, `GitLeaf update: ${filePath}`);
+    }
+
     res.json({ success: true, path: filePath });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -150,6 +156,12 @@ app.post('/api/projects/:id/files', (req, res) => {
   } else {
     projectManager.writeFile(project.rootPath, filePath, '');
   }
+
+  // Auto-commit & push
+  if (project.gitRemote || GitSync.getRemote(project.rootPath)) {
+    GitSync.commitAndPushAsync(project.rootPath, `GitLeaf create: ${filePath}`);
+  }
+
   res.json({ success: true, path: filePath });
 });
 
@@ -158,15 +170,29 @@ app.delete('/api/projects/:id/files', (req, res) => {
   if (!project) return res.status(404).json({ error: 'Project not found' });
   const filePath = req.query.path as string;
   if (!filePath) return res.status(400).json({ error: 'Path is required' });
+
   projectManager.deleteFile(project.rootPath, filePath);
-  res.json({ success: true });
+
+  // Auto-commit & push
+  if (project.gitRemote || GitSync.getRemote(project.rootPath)) {
+    GitSync.commitAndPushAsync(project.rootPath, `GitLeaf delete: ${filePath}`);
+  }
+
+  res.json({ success: true, path: filePath });
 });
 
-// 4. LaTeX Compilation
+// 4. LaTeX Compilation with Git Auto-Pull and Push
 app.post('/api/projects/:id/compile', async (req, res) => {
   const project = projectManager.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   const { mainFile, engine } = req.body;
+
+  // 1. Pull latest changes from co-authors before compiling
+  if (project.gitRemote || GitSync.getRemote(project.rootPath)) {
+    try {
+      GitSync.pull(project.rootPath);
+    } catch {}
+  }
 
   const result = await latexCompiler.compile(
     project.rootPath,
@@ -174,7 +200,7 @@ app.post('/api/projects/:id/compile', async (req, res) => {
     engine || project.engine
   );
 
-  // Auto-record checkpoint snapshot on successful compilation
+  // 2. Auto-record checkpoint snapshot & push to GitHub
   if (result.success) {
     try {
       const files = projectManager.getProjectFiles(project.rootPath);
@@ -185,6 +211,10 @@ app.post('/api/projects/:id/compile', async (req, res) => {
         }
       }
       historyTracker.createSnapshot(project.rootPath, 'Auto-checkpoint: Compiled PDF', 'GitLeaf Daemon', fileContents);
+
+      if (project.gitRemote || GitSync.getRemote(project.rootPath)) {
+        GitSync.commitAndPushAsync(project.rootPath, `GitLeaf compile & checkpoint`);
+      }
     } catch {}
   }
 
@@ -560,6 +590,28 @@ app.get('/api/projects/:id/git/status', (req, res) => {
     clean: status.clean,
     changedFiles: status.changedFiles,
     lastCommit,
+  });
+});
+
+app.get('/api/projects/:id/git/sync-check', (req, res) => {
+  const project = projectManager.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  const remote = GitSync.getRemote(project.rootPath);
+  if (!remote || !GitSync.isGitRepo(project.rootPath)) {
+    return res.json({ hasRemote: false, updated: false });
+  }
+
+  const beforeCommit = GitSync.getLastCommit(project.rootPath);
+  const pulled = GitSync.pull(project.rootPath);
+  const afterCommit = GitSync.getLastCommit(project.rootPath);
+  const updated = pulled && beforeCommit?.hash !== afterCommit?.hash;
+
+  res.json({
+    hasRemote: true,
+    pulled,
+    updated,
+    lastCommit: afterCommit,
   });
 });
 

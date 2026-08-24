@@ -178,13 +178,20 @@ export const App: React.FC = () => {
           {/* Bottom System Status Bar */}
           <footer className="h-6 bg-dark-surface border-t border-dark-border px-3 flex items-center justify-between text-[11px] font-mono text-dark-muted select-none">
             <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-1 text-leaf-400">
-                <Radio className="w-3 h-3 text-leaf-400 animate-pulse" />
-                <span>CRDT Live Mesh Connected</span>
-              </div>
+              {currentProject?.gitRemote ? (
+                <div className="flex items-center space-x-1.5 text-leaf-400">
+                  <span className="w-2 h-2 rounded-full bg-leaf-400 animate-pulse" />
+                  <span className="font-medium">GitHub Cloud Sync Active (Auto Push / Pull)</span>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-1 text-leaf-400">
+                  <Radio className="w-3 h-3 text-leaf-400 animate-pulse" />
+                  <span>Local-First Workspace</span>
+                </div>
+              )}
               <div className="flex items-center space-x-1 text-dark-muted hidden sm:flex">
                 <Laptop className="w-3 h-3 text-dark-muted" />
-                <span>{currentProject?.rootPath || 'Local Filesystem'}</span>
+                <span className="truncate max-w-[200px]">{currentProject?.rootPath || 'Local Filesystem'}</span>
               </div>
             </div>
 

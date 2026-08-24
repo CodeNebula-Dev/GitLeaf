@@ -131,6 +131,28 @@ export function useProject() {
     [currentProject]
   );
 
+  // 4. Periodic background Git sync check (every 4 seconds)
+  useEffect(() => {
+    if (!currentProject) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/projects/${currentProject.id}/git/sync-check`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.updated) {
+            fetchFiles();
+            if (currentPathRef.current) {
+              fetchFileContent(currentProject.id, currentPathRef.current);
+            }
+          }
+        }
+      } catch {}
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [currentProject, fetchFiles, fetchFileContent]);
+
   const handleContentChange = useCallback(
     (newContent: string) => {
       if (!fileLoadedRef.current) return;
