@@ -106,7 +106,7 @@ async function main() {
       console.log(`\n${dim}Verifying GitHub token...${reset}`);
       const user = await githubService.getAuthenticatedUser(token.trim());
       if (user) {
-        githubService.saveToken(token.trim());
+        githubService.saveToken(token.trim(), user);
         console.log(`${green}✓ Successfully connected GitHub account as @${user.login} (${user.name})!${reset}`);
         console.log(`${dim}GitLeaf will now automatically create private repos and invite collaborators with 0 manual steps.${reset}\n`);
       } else {

@@ -4,6 +4,11 @@ import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import zlib from 'zlib';
+import dns from 'dns';
+
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {}
 import { WebSocketServer } from 'ws';
 import { ProjectManager } from './fs/manager.js';
 import { LatexCompiler } from './compiler/runner.js';

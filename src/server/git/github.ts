@@ -1,6 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import dns from 'dns';
+import https from 'https';
+
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {}
 
 export interface GitHubUser {
   login: string;
@@ -35,6 +41,103 @@ export interface GitHubAuthResult {
   tokenExpiration?: string;
 }
 
+interface SafeFetchResponse {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  headers: { get: (name: string) => string | null };
+  json: () => Promise<any>;
+}
+
+/**
+ * Cross-platform resilient HTTP/HTTPS requester that handles Windows IPv6/DNS edge cases.
+ */
+async function safeFetch(url: string, options: any = {}): Promise<SafeFetchResponse> {
+  try {
+    const res = await fetch(url, options);
+    return {
+      ok: res.ok,
+      status: res.status,
+      statusText: res.statusText,
+      headers: {
+        get: (name: string) => res.headers.get(name),
+      },
+      json: async () => {
+        if (res.status === 204) return {};
+        try {
+          return await res.json();
+        } catch {
+          return {};
+        }
+      },
+    };
+  } catch (fetchErr: any) {
+    // Fallback to native Node.js HTTPS request with forced IPv4 on Windows
+    return new Promise((resolve, reject) => {
+      try {
+        const parsedUrl = new URL(url);
+        const reqHeaders: Record<string, string> = {
+          'User-Agent': 'GitLeaf/1.0',
+          Accept: 'application/vnd.github+json',
+          ...(options.headers || {}),
+        };
+
+        const reqOptions: https.RequestOptions = {
+          hostname: parsedUrl.hostname,
+          port: 443,
+          path: `${parsedUrl.pathname}${parsedUrl.search}`,
+          method: options.method || 'GET',
+          headers: reqHeaders,
+          family: 4, // Force IPv4 to bypass Windows IPv6 routing issues
+          timeout: 12000,
+        };
+
+        const req = https.request(reqOptions, (res) => {
+          let rawData = '';
+          res.on('data', (chunk) => {
+            rawData += chunk;
+          });
+          res.on('end', () => {
+            const status = res.statusCode || 500;
+            resolve({
+              ok: status >= 200 && status < 300,
+              status,
+              statusText: res.statusMessage || '',
+              headers: {
+                get: (name: string) => (res.headers[name.toLowerCase()] as string) || null,
+              },
+              json: async () => {
+                if (!rawData.trim() || status === 204) return {};
+                try {
+                  return JSON.parse(rawData);
+                } catch {
+                  return {};
+                }
+              },
+            });
+          });
+        });
+
+        req.on('error', (e: any) => {
+          reject(new Error(`Network request failed: ${e.message || 'Connection refused'}`));
+        });
+
+        req.on('timeout', () => {
+          req.destroy();
+          reject(new Error('GitHub API connection timed out'));
+        });
+
+        if (options.body) {
+          req.write(typeof options.body === 'string' ? options.body : JSON.stringify(options.body));
+        }
+        req.end();
+      } catch (err: any) {
+        reject(err);
+      }
+    });
+  }
+}
+
 export class GitHubService {
   private configPath: string;
 
@@ -58,102 +161,82 @@ export class GitHubService {
    */
   public getToken(): string | null {
     if (process.env.GITHUB_TOKEN) return this.cleanToken(process.env.GITHUB_TOKEN);
-    if (fs.existsSync(this.configPath)) {
-      try {
-        const data = JSON.parse(fs.readFileSync(this.configPath, 'utf-8'));
-        return data.token ? this.cleanToken(data.token) : null;
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Get cached user profile from local config
-   */
-  public getStoredUser(): GitHubUser | null {
-    if (fs.existsSync(this.configPath)) {
-      try {
-        const data = JSON.parse(fs.readFileSync(this.configPath, 'utf-8'));
-        if (data.login) {
-          return {
-            login: data.login,
-            id: data.id || 1,
-            name: data.name || data.login,
-            avatar_url: data.avatar_url || `https://github.com/${data.login}.png`,
-            email: data.email,
-          };
-        }
-      } catch {}
-    }
-    return null;
-  }
-
-  /**
-   * Save GitHub Personal Access Token and cached profile
-   */
-  public saveToken(rawToken: string, userProfile?: Partial<GitHubUser>, tokenExpiration?: string): boolean {
     try {
-      const token = this.cleanToken(rawToken);
-      const existing = fs.existsSync(this.configPath) ? JSON.parse(fs.readFileSync(this.configPath, 'utf-8')) : {};
-      const merged = {
-        ...existing,
-        token,
-        login: userProfile?.login || existing.login,
-        name: userProfile?.name || existing.name,
-        avatar_url: userProfile?.avatar_url || existing.avatar_url,
-        id: userProfile?.id || existing.id,
+      if (fs.existsSync(this.configPath)) {
+        const raw = fs.readFileSync(this.configPath, 'utf-8');
+        const data = JSON.parse(raw);
+        if (data.token) return this.cleanToken(data.token);
+      }
+    } catch {}
+    return null;
+  }
+
+  /**
+   * Save token and authenticated user metadata to disk
+   */
+  public saveToken(token: string, user?: GitHubUser | null, tokenExpiration?: string): void {
+    const cleaned = this.cleanToken(token);
+    try {
+      const data = {
+        token: cleaned,
+        user: user || null,
+        tokenExpiration: tokenExpiration || null,
         savedAt: Date.now(),
-        tokenExpiration: tokenExpiration || existing.tokenExpiration || null,
       };
-      fs.writeFileSync(this.configPath, JSON.stringify(merged, null, 2), 'utf-8');
-      return true;
-    } catch (err: any) {
-      console.error('Failed to save GitHub token:', err.message);
-      return false;
+      fs.writeFileSync(this.configPath, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (err) {
+      console.error('Failed to save GitHub auth file:', err);
     }
   }
 
   /**
-   * Remove stored GitHub token
+   * Remove stored token and user info
    */
-  public clearToken(): boolean {
+  public clearToken(): void {
     try {
       if (fs.existsSync(this.configPath)) {
         fs.unlinkSync(this.configPath);
       }
-      return true;
-    } catch {
-      return false;
-    }
+    } catch {}
   }
 
   /**
-   * Get stored token expiration date string (if available)
+   * Get cached user info if available
    */
-  public getTokenExpiration(): string | null {
-    if (fs.existsSync(this.configPath)) {
-      try {
+  public getStoredUser(): GitHubUser | null {
+    try {
+      if (fs.existsSync(this.configPath)) {
         const data = JSON.parse(fs.readFileSync(this.configPath, 'utf-8'));
-        return data.tokenExpiration || null;
-      } catch {}
-    }
+        return data.user || null;
+      }
+    } catch {}
     return null;
   }
 
   /**
-   * Verify token and fetch current user profile with detailed error info
+   * Get cached token expiration string
+   */
+  public getTokenExpiration(): string | null {
+    try {
+      if (fs.existsSync(this.configPath)) {
+        const data = JSON.parse(fs.readFileSync(this.configPath, 'utf-8'));
+        return data.tokenExpiration || null;
+      }
+    } catch {}
+    return null;
+  }
+
+  /**
+   * Verify token against GitHub API.
    */
   public async verifyToken(customToken?: string): Promise<GitHubAuthResult> {
-    const raw = customToken || this.getToken();
-    if (!raw) {
-      return { success: false, error: 'No token provided' };
+    const rawToken = customToken || this.getToken();
+    if (!rawToken) {
+      return { success: false, error: 'No GitHub token provided' };
     }
 
-    const token = this.cleanToken(raw);
+    const token = this.cleanToken(rawToken);
 
-    // Try Bearer auth header first, fallback to token header
     const authHeaders = [
       `Bearer ${token}`,
       `token ${token}`,
@@ -164,7 +247,7 @@ export class GitHubService {
     for (const authHeader of authHeaders) {
       try {
         // 1. Try standard /user endpoint
-        const res = await fetch('https://api.github.com/user', {
+        const res = await safeFetch('https://api.github.com/user', {
           headers: {
             Authorization: authHeader,
             Accept: 'application/vnd.github+json',
@@ -175,7 +258,6 @@ export class GitHubService {
 
         if (res.ok) {
           const data = await res.json();
-          // Read token expiration header (GitHub returns this for tokens with expiration)
           const expirationHeader = res.headers.get('github-authentication-token-expiration');
           return {
             success: true,
@@ -191,7 +273,7 @@ export class GitHubService {
         }
 
         // 2. If /user is restricted (e.g. fine-grained token), fallback to /user/repos to check permissions
-        const repoRes = await fetch('https://api.github.com/user/repos?per_page=1&type=owner', {
+        const repoRes = await safeFetch('https://api.github.com/user/repos?per_page=1&type=owner', {
           headers: {
             Authorization: authHeader,
             Accept: 'application/vnd.github+json',
@@ -217,7 +299,7 @@ export class GitHubService {
         const errData = await res.json().catch(() => ({ message: res.statusText }));
         const msg = errData.message || `GitHub error ${res.status}: ${res.statusText}`;
 
-        // If GitHub returns "rate limit exceeded for user ID X", GitHub HAS authenticated the user!
+        // Rate limit handler with local fallback
         if (msg.toLowerCase().includes('rate limit exceeded') && (msg.includes('user ID') || token.startsWith('ghp_') || token.startsWith('github_pat_'))) {
           const idMatch = msg.match(/user ID (\d+)/i);
           const userId = idMatch ? parseInt(idMatch[1], 10) : 201327205;
@@ -226,9 +308,8 @@ export class GitHubService {
           let resolvedAvatar = `https://avatars.githubusercontent.com/u/${userId}?v=4`;
           let resolvedName = '';
 
-          // 1. Try public user endpoint by ID (which is not blocked)
           try {
-            const userByIdRes = await fetch(`https://api.github.com/user/${userId}`, {
+            const userByIdRes = await safeFetch(`https://api.github.com/user/${userId}`, {
               headers: { 'User-Agent': 'GitLeaf/1.0' },
             });
             if (userByIdRes.ok) {
@@ -239,7 +320,6 @@ export class GitHubService {
             }
           } catch {}
 
-          // 2. Fallback to local git config user.name if available
           if (!resolvedLogin) {
             try {
               const { execSync } = await import('child_process');
@@ -252,28 +332,22 @@ export class GitHubService {
             } catch {}
           }
 
-          const finalLogin = resolvedLogin || 'CodeNebula-Dev';
+          const fallbackLogin = resolvedLogin || 'CodeNebula-Dev';
           return {
             success: true,
             user: {
-              login: finalLogin,
+              login: fallbackLogin,
               id: userId,
-              name: resolvedName || finalLogin,
+              name: resolvedName || fallbackLogin,
               avatar_url: resolvedAvatar,
             },
           };
         }
 
         lastError = msg;
-      } catch (err: any) {
-        lastError = err.message || 'Network error reaching api.github.com';
+      } catch (e: any) {
+        lastError = e.message || 'Connection error';
       }
-    }
-
-    // Fallback: Check local git config or stored user
-    const stored = this.getStoredUser();
-    if (stored) {
-      return { success: true, user: stored };
     }
 
     let localGitUser = '';
@@ -324,7 +398,7 @@ export class GitHubService {
       .slice(0, 80);
 
     try {
-      const res = await fetch('https://api.github.com/user/repos', {
+      const res = await safeFetch('https://api.github.com/user/repos', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -386,12 +460,12 @@ export class GitHubService {
   public async addCollaborator(owner: string, repo: string, username: string): Promise<GitHubInviteResult> {
     const token = this.getToken();
     if (!token) {
-      return { success: false, error: 'GitHub token not found.' };
+      return { success: false, error: 'GitHub token not found. Please connect your GitHub account.' };
     }
 
     try {
       const cleanUsername = username.trim().replace(/^@/, '');
-      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/collaborators/${cleanUsername}`, {
+      const res = await safeFetch(`https://api.github.com/repos/${owner}/${repo}/collaborators/${cleanUsername}`, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -402,12 +476,7 @@ export class GitHubService {
         body: JSON.stringify({ permission: 'push' }),
       });
 
-      let data: any = {};
-      if (res.status !== 204) {
-        try {
-          data = await res.json();
-        } catch {}
-      }
+      const data = await res.json();
 
       // 201 = Invitation created, 204 = User already a collaborator
       if (res.status === 201 || res.status === 204) {
@@ -424,9 +493,7 @@ export class GitHubService {
         error: data.message || `Could not add user "${cleanUsername}" to GitHub repo. (HTTP ${res.status})`,
       };
     } catch (err: any) {
-      const cause = err.cause ? `: ${err.cause.message || err.cause}` : '';
-      const msg = err.message ? `${err.message}${cause}` : 'Network error connecting to GitHub API';
-      return { success: false, error: msg };
+      return { success: false, error: err.message || 'Network error connecting to GitHub API' };
     }
   }
 
@@ -438,7 +505,7 @@ export class GitHubService {
     if (!token) return false;
 
     try {
-      const res = await fetch('https://api.github.com/user/repository_invitations', {
+      const res = await safeFetch('https://api.github.com/user/repository_invitations', {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github+json',
@@ -454,7 +521,7 @@ export class GitHubService {
       for (const inv of invitations) {
         const invRepo = inv.repository?.full_name?.toLowerCase();
         if (!repoFullName || (invRepo && invRepo.includes(repoFullName.toLowerCase()))) {
-          await fetch(`https://api.github.com/user/repository_invitations/${inv.id}`, {
+          await safeFetch(`https://api.github.com/user/repository_invitations/${inv.id}`, {
             method: 'PATCH',
             headers: {
               Authorization: `Bearer ${token}`,
