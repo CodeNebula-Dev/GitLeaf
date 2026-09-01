@@ -421,10 +421,12 @@ export class GitHubService {
 
       return {
         success: false,
-        error: data.message || `Could not add user "${cleanUsername}" to GitHub repo.`,
+        error: data.message || `Could not add user "${cleanUsername}" to GitHub repo. (HTTP ${res.status})`,
       };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      const cause = err.cause ? `: ${err.cause.message || err.cause}` : '';
+      const msg = err.message ? `${err.message}${cause}` : 'Network error connecting to GitHub API';
+      return { success: false, error: msg };
     }
   }
 
