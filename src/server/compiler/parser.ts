@@ -7,36 +7,75 @@ export function parseLatexLog(logContent: string, defaultFile: string = 'main.te
   let currentFile = defaultFile;
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lines[i].trim();
+    if (!line) continue;
 
-    // File name tracking e.g. (./sections/intro.tex
-    const fileMatch = line.match(/\(((\.?\/)?[\w-]+\/[\w-]+\.tex)/);
-    if (fileMatch) {
-      currentFile = fileMatch[1].replace(/^\.\//, '');
-    }
-
-    // Standard file:line: error format (e.g. ./main.tex:24: Undefined control sequence.)
-    const fileLineErrorMatch = line.match(/^(.+?):(\d+):\s*(.+)$/);
-    if (fileLineErrorMatch) {
+    // 1. Tectonic Error format: error: file.tex:line: message
+    const tectonicErrorMatch = line.match(/^error:\s*(.+?):(\d+):\s*(.+)$/i);
+    if (tectonicErrorMatch) {
       diagnostics.push({
         type: 'error',
-        file: fileLineErrorMatch[1].replace(/^\.\//, ''),
-        line: parseInt(fileLineErrorMatch[2], 10),
-        message: fileLineErrorMatch[3],
+        file: tectonicErrorMatch[1].trim(),
+        line: parseInt(tectonicErrorMatch[2], 10),
+        message: tectonicErrorMatch[3].trim(),
         raw: line,
       });
       continue;
     }
 
-    // Traditional TeX error line format "! Error message" followed by "l.42 problematic text"
+    // 2. Tectonic Warning format: warning: file.tex:line: message OR warning: message
+    const tectonicWarnMatch = line.match(/^warning:\s*(?:(.+?):(\d+):\s*)?(.+)$/i);
+    if (tectonicWarnMatch) {
+      diagnostics.push({
+        type: 'warning',
+        file: tectonicWarnMatch[1]?.trim() || currentFile,
+        line: tectonicWarnMatch[2] ? parseInt(tectonicWarnMatch[2], 10) : 1,
+        message: tectonicWarnMatch[3].trim(),
+        raw: line,
+      });
+      continue;
+    }
+
+    // 3. Skip info notes from Tectonic (e.g. note: Running TeX ...)
+    if (line.startsWith('note:')) {
+      continue;
+    }
+
+    // 4. File name tracking e.g. (./sections/intro.tex or (main.tex
+    const fileMatch = line.match(/\(((\.?\/)?[\w-]+\/[\w-]+\.tex)/);
+    if (fileMatch) {
+      currentFile = fileMatch[1].replace(/^\.\//, '');
+    }
+
+    // 5. Standard TeX Warning line
+    if (
+      line.includes('LaTeX Warning:') ||
+      line.includes('Package ') && line.includes('Warning:') ||
+      line.includes('Overfull \\hbox') ||
+      line.includes('Underfull \\hbox')
+    ) {
+      const lineNumMatch = line.match(/input line (\d+)/i) || line.match(/line (\d+)/i) || line.match(/lines (\d+)--\d+/i);
+      const lineNum = lineNumMatch ? parseInt(lineNumMatch[1], 10) : 1;
+
+      diagnostics.push({
+        type: 'warning',
+        file: currentFile,
+        line: lineNum,
+        message: line,
+        raw: line,
+      });
+      continue;
+    }
+
+    // 6. Traditional TeX fatal error "! Error message" followed by "l.42 problematic text"
     if (line.startsWith('! ')) {
       const errorMsg = line.substring(2).trim();
       let lineNum = 1;
       let rawContext = line;
 
-      // Look ahead up to 5 lines for "l.XX"
-      for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
-        const nextLine = lines[j];
+      // Look ahead up to 6 lines for "l.XX"
+      for (let j = i + 1; j < Math.min(i + 7, lines.length); j++) {
+        const nextLine = lines[j].trim();
         const lineMatch = nextLine.match(/^l\.(\d+)\s*(.*)$/);
         if (lineMatch) {
           lineNum = parseInt(lineMatch[1], 10);
@@ -55,18 +94,17 @@ export function parseLatexLog(logContent: string, defaultFile: string = 'main.te
       continue;
     }
 
-    // LaTeX Warnings (e.g. LaTeX Warning: Reference `eq1` on page 1 undefined on input line 45.)
-    if (line.includes('LaTeX Warning:') || line.includes('Package ') && line.includes('Warning:')) {
-      const lineNumMatch = line.match(/input line (\d+)/i) || line.match(/line (\d+)/i);
-      const lineNum = lineNumMatch ? parseInt(lineNumMatch[1], 10) : 1;
-
+    // 7. Standard pdflatex file:line: error format (e.g. ./main.tex:24: Undefined control sequence.)
+    const fileLineErrorMatch = line.match(/^(\.?\/?[^:\s]+\.tex):(\d+):\s*(.+)$/i);
+    if (fileLineErrorMatch) {
       diagnostics.push({
-        type: 'warning',
-        file: currentFile,
-        line: lineNum,
-        message: line.trim(),
+        type: 'error',
+        file: fileLineErrorMatch[1].replace(/^\.\//, ''),
+        line: parseInt(fileLineErrorMatch[2], 10),
+        message: fileLineErrorMatch[3],
         raw: line,
       });
+      continue;
     }
   }
 
