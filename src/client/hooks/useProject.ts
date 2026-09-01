@@ -38,6 +38,9 @@ export function useProject() {
   }, [fetchProjects]);
 
   // 2. Fetch Project Files when Current Project changes
+  const activeFileRef = useRef<string>(activeFilePath);
+  activeFileRef.current = activeFilePath;
+
   const fetchFiles = useCallback(async () => {
     if (!currentProject) return;
     try {
@@ -64,8 +67,9 @@ export function useProject() {
           });
         }
 
-        // Ensure active file is valid
-        if (!data.files.some((f: ProjectFile) => f.path === activeFilePath)) {
+        // Only auto-select main.tex if the currently active file doesn't exist in the file list
+        const currentActive = activeFileRef.current;
+        if (!data.files.some((f: ProjectFile) => f.path === currentActive)) {
           const main = data.files.find((f: ProjectFile) => f.isMain || f.name === 'main.tex');
           if (main) {
             setActiveFilePath(main.path);
@@ -75,7 +79,7 @@ export function useProject() {
     } catch (err) {
       console.error('Error fetching files:', err);
     }
-  }, [currentProject, activeFilePath]);
+  }, [currentProject]);
 
   useEffect(() => {
     if (currentProject) {

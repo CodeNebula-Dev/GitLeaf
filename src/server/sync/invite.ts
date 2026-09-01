@@ -306,11 +306,26 @@ export class InviteManager {
     let newProject: ProjectMetadata;
 
     if (fs.existsSync(metaPath)) {
-      newProject = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-      newProject.rootPath = projPath;
+      try {
+        newProject = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+        newProject.rootPath = projPath;
+      } catch {
+        // If metadata is corrupt, create fresh
+        newProject = {
+          id: nanoid(10),
+          name: invite.projectName,
+          rootPath: projPath,
+          mainFile: 'main.tex',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          engine: 'pdflatex',
+          gitRemote: invite.gitRemote,
+          collaborators: [],
+        };
+      }
     } else {
       newProject = {
-        id: invite.projectId || nanoid(10),
+        id: nanoid(10),
         name: invite.projectName,
         rootPath: projPath,
         mainFile: 'main.tex',
@@ -322,7 +337,9 @@ export class InviteManager {
       };
     }
 
+    // Ensure git remote is set correctly
     newProject.gitRemote = invite.gitRemote;
+    newProject.updatedAt = Date.now();
     this.addCollaborator(newProject, collaboratorName, invite.role);
     fs.writeFileSync(metaPath, JSON.stringify(newProject, null, 2), 'utf-8');
 

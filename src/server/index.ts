@@ -456,7 +456,8 @@ const githubService = new GitHubService();
 // 8. GitHub API Automation Endpoints
 app.get('/api/github/user', async (req, res) => {
   const user = await githubService.getAuthenticatedUser();
-  res.json({ authenticated: !!user, user: user || null });
+  const tokenExpiration = githubService.getTokenExpiration();
+  res.json({ authenticated: !!user, user: user || null, tokenExpiration });
 });
 
 app.post('/api/github/auth', async (req, res) => {
@@ -468,8 +469,8 @@ app.post('/api/github/auth', async (req, res) => {
     return res.status(401).json({ error: `GitHub rejected token: ${result.error || 'Bad credentials'}. Please verify token scopes.` });
   }
 
-  githubService.saveToken(token, result.user);
-  res.json({ success: true, user: result.user });
+  githubService.saveToken(token, result.user, result.tokenExpiration);
+  res.json({ success: true, user: result.user, tokenExpiration: result.tokenExpiration || null });
 });
 
 app.post('/api/github/disconnect', (req, res) => {

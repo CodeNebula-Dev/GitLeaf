@@ -20,6 +20,8 @@ import {
   Github,
   CheckCircle2,
   Lock,
+  AlertTriangle,
+  Timer,
 } from 'lucide-react';
 import { ProjectMetadata } from '../../shared/types.js';
 import { UserProfile } from '../hooks/useUser.js';
@@ -51,6 +53,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [importing, setImporting] = useState(false);
   const [githubUser, setGithubUser] = useState<{ login: string; avatar_url: string; name: string } | null>(null);
   const [githubModalOpen, setGithubModalOpen] = useState(false);
+  const [tokenExpiration, setTokenExpiration] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchGitHubUser = async () => {
@@ -59,8 +62,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
       if (res.ok) {
         const data = await res.json();
         setGithubUser(data.user);
+        setTokenExpiration(data.tokenExpiration || null);
       }
     } catch {}
+  };
+
+  const getExpiryLabel = (): { text: string; warn: boolean } | null => {
+    if (!tokenExpiration) return null;
+    const expDate = new Date(tokenExpiration);
+    if (isNaN(expDate.getTime())) return null;
+    const now = Date.now();
+    const diffMs = expDate.getTime() - now;
+    if (diffMs <= 0) return { text: 'Token expired!', warn: true };
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (days > 30) return { text: `Expires in ${days} days`, warn: false };
+    if (days > 0) return { text: `Expires in ${days} day${days > 1 ? 's' : ''}`, warn: days <= 7 };
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    return { text: `Expires in ${hours}h`, warn: true };
   };
 
   useEffect(() => {
@@ -140,8 +158,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
+  const expiryInfo = getExpiryLabel();
+
   return (
-    <div className="min-h-screen bg-dark-bg text-dark-text flex flex-col font-sans select-none">
+    <div className="h-screen bg-dark-bg text-dark-text flex flex-col font-sans select-none overflow-hidden">
       {/* Top Navigation */}
       <header className="h-16 bg-dark-surface border-b border-dark-border px-6 flex items-center justify-between">
         {/* Brand */}
@@ -180,6 +200,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <span className="text-dark-muted hover:text-white">Connect GitHub</span>
             )}
           </button>
+
+          {/* Token Expiry Badge */}
+          {githubUser && expiryInfo && (
+            <span className={`text-[10px] font-mono px-2 py-1 rounded-md border flex items-center space-x-1 ${
+              expiryInfo.warn
+                ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                : 'bg-dark-hover text-dark-muted border-dark-border'
+            }`}>
+              <Timer className="w-3 h-3" />
+              <span>{expiryInfo.text}</span>
+            </span>
+          )}
 
           {/* Import Paper Button */}
           <input
@@ -228,7 +260,50 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </header>
 
       {/* Main Dashboard Content */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-8 space-y-6">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-8 space-y-6 overflow-y-auto">
+        {/* GitHub Connection Required Banner */}
+        {!githubUser ? (
+          <div className="rounded-2xl border-2 border-amber-500/40 bg-amber-500/5 p-5 relative overflow-hidden">
+            <div className="flex items-start space-x-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-amber-400" />
+              </div>
+              <div className="flex-1 space-y-1.5">
+                <h2 className="text-base font-bold text-white">GitHub Connection Required for Collaboration</h2>
+                <p className="text-xs text-dark-muted leading-relaxed">
+                  To invite co-authors, create cloud-synced private repositories, and enable Push/Pull across laptops, you must first connect your <strong className="text-white">GitHub account</strong> with a Personal Access Token. This is a one-time setup.
+                </p>
+                <div className="flex items-center space-x-3 pt-2">
+                  <button
+                    onClick={() => setGithubModalOpen(true)}
+                    className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-leaf-500 hover:bg-leaf-600 active:bg-leaf-700 text-white font-medium text-xs shadow-md shadow-leaf-500/20 transition-all font-mono"
+                  >
+                    <Github className="w-4 h-4" />
+                    <span>Connect GitHub Account</span>
+                  </button>
+                  <span className="text-[11px] text-dark-muted font-mono">Takes ~10 seconds</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center space-x-2.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-medium text-emerald-300 font-mono">GitHub Connected — Cloud Sync Ready</span>
+              {expiryInfo && (
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                  expiryInfo.warn
+                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                    : 'bg-dark-hover text-dark-muted border-dark-border'
+                }`}>
+                  {expiryInfo.text}
+                </span>
+              )}
+            </div>
+            <span className="text-[11px] text-dark-muted font-mono">@{githubUser.login}</span>
+          </div>
+        )}
         {/* Banner Card */}
         <div className="glass-panel rounded-2xl p-6 relative overflow-hidden">
           <div className="max-w-2xl space-y-2">

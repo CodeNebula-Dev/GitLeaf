@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Github, Lock, ArrowUpRight, CheckCircle2, AlertCircle, Loader2, LogOut } from 'lucide-react';
+import { X, Github, Lock, ArrowUpRight, CheckCircle2, AlertCircle, Loader2, LogOut, Timer } from 'lucide-react';
 
 interface GitHubConnectModalProps {
   isOpen: boolean;
@@ -18,6 +18,7 @@ export const GitHubConnectModal: React.FC<GitHubConnectModalProps> = ({ isOpen, 
   const [tokenInput, setTokenInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<GitHubUser | null>(null);
+  const [tokenExpiration, setTokenExpiration] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
@@ -34,6 +35,7 @@ export const GitHubConnectModal: React.FC<GitHubConnectModalProps> = ({ isOpen, 
       if (res.ok) {
         const data = await res.json();
         setCurrentUser(data.user);
+        setTokenExpiration(data.tokenExpiration || null);
       }
     } catch {}
   };
@@ -125,6 +127,31 @@ export const GitHubConnectModal: React.FC<GitHubConnectModalProps> = ({ isOpen, 
             <p className="text-xs text-dark-muted leading-relaxed">
               GitLeaf is linked to your GitHub account. All your LaTeX papers can now be auto-synced to private repositories with 1 click.
             </p>
+
+            {/* Token Expiration Info */}
+            {tokenExpiration && (
+              <div className={`text-[11px] font-mono flex items-center space-x-1.5 p-2 rounded-lg ${
+                (() => {
+                  const exp = new Date(tokenExpiration);
+                  if (isNaN(exp.getTime())) return 'bg-dark-surface text-dark-muted border border-dark-border';
+                  const days = Math.floor((exp.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                  if (days <= 0) return 'bg-red-500/10 text-red-300 border border-red-500/20';
+                  if (days <= 7) return 'bg-amber-500/10 text-amber-300 border border-amber-500/20';
+                  return 'bg-dark-surface text-dark-muted border border-dark-border';
+                })()
+              }`}>
+                <Timer className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  Token {(() => {
+                    const exp = new Date(tokenExpiration);
+                    if (isNaN(exp.getTime())) return `expires: ${tokenExpiration}`;
+                    const days = Math.floor((exp.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                    if (days <= 0) return 'has expired! Please generate a new one.';
+                    return `expires in ${days} day${days !== 1 ? 's' : ''} (${exp.toLocaleDateString()})`;
+                  })()}
+                </span>
+              </div>
+            )}
 
             <div className="flex items-center justify-between pt-2">
               <button

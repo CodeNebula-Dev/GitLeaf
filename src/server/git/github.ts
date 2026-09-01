@@ -32,6 +32,7 @@ export interface GitHubAuthResult {
   success: boolean;
   user?: GitHubUser;
   error?: string;
+  tokenExpiration?: string;
 }
 
 export class GitHubService {
@@ -92,7 +93,7 @@ export class GitHubService {
   /**
    * Save GitHub Personal Access Token and cached profile
    */
-  public saveToken(rawToken: string, userProfile?: Partial<GitHubUser>): boolean {
+  public saveToken(rawToken: string, userProfile?: Partial<GitHubUser>, tokenExpiration?: string): boolean {
     try {
       const token = this.cleanToken(rawToken);
       const existing = fs.existsSync(this.configPath) ? JSON.parse(fs.readFileSync(this.configPath, 'utf-8')) : {};
@@ -104,6 +105,7 @@ export class GitHubService {
         avatar_url: userProfile?.avatar_url || existing.avatar_url,
         id: userProfile?.id || existing.id,
         savedAt: Date.now(),
+        tokenExpiration: tokenExpiration || existing.tokenExpiration || null,
       };
       fs.writeFileSync(this.configPath, JSON.stringify(merged, null, 2), 'utf-8');
       return true;
@@ -125,6 +127,19 @@ export class GitHubService {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Get stored token expiration date string (if available)
+   */
+  public getTokenExpiration(): string | null {
+    if (fs.existsSync(this.configPath)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(this.configPath, 'utf-8'));
+        return data.tokenExpiration || null;
+      } catch {}
+    }
+    return null;
   }
 
   /**
@@ -160,6 +175,8 @@ export class GitHubService {
 
         if (res.ok) {
           const data = await res.json();
+          // Read token expiration header (GitHub returns this for tokens with expiration)
+          const expirationHeader = res.headers.get('github-authentication-token-expiration');
           return {
             success: true,
             user: {
@@ -169,6 +186,7 @@ export class GitHubService {
               avatar_url: data.avatar_url || 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png',
               email: data.email,
             },
+            tokenExpiration: expirationHeader || undefined,
           };
         }
 

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Play, Share2, History, Plus, ChevronDown, Check, Loader2, ArrowLeft, Users, UploadCloud, DownloadCloud } from 'lucide-react';
-import { ProjectMetadata } from '../../shared/types.js';
+import React, { useState, useRef, useEffect } from 'react';
+import { Play, Share2, History, Plus, ChevronDown, ChevronUp, Check, Loader2, ArrowLeft, Users, UploadCloud, DownloadCloud, Crown, Pencil } from 'lucide-react';
+import { ProjectMetadata, Collaborator } from '../../shared/types.js';
 import { UserProfile } from '../hooks/useUser.js';
 import { PeerUser } from './MonacoEditor.js';
 
@@ -9,6 +9,7 @@ interface NavbarProps {
   projects: ProjectMetadata[];
   user: UserProfile | null;
   activePeers?: PeerUser[];
+  collaborators?: Collaborator[];
   onSelectProject: (proj: ProjectMetadata) => void;
   onBackToDashboard: () => void;
   onCompile: () => void;
@@ -30,6 +31,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   projects,
   user,
   activePeers = [],
+  collaborators = [],
   onSelectProject,
   onBackToDashboard,
   onCompile,
@@ -46,6 +48,26 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenProfile,
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [authorsDropdownOpen, setAuthorsDropdownOpen] = useState(false);
+  const authorsRef = useRef<HTMLDivElement>(null);
+
+  // Close authors dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (authorsRef.current && !authorsRef.current.contains(e.target as Node)) {
+        setAuthorsDropdownOpen(false);
+      }
+    };
+    if (authorsDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [authorsDropdownOpen]);
+
+  // Build active peer ID set for quick lookup
+  const activePeerNames = new Set(activePeers.map((p) => p.name.toLowerCase()));
+
+  const totalAuthors = Math.max(collaborators.length, 1);
 
   return (
     <header className="h-14 bg-dark-surface border-b border-dark-border px-4 flex items-center justify-between select-none z-30">
@@ -161,36 +183,125 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Right: Collaborators, Actions & User Avatar */}
       <div className="flex items-center space-x-2">
-        {/* Live Collaborators Presence */}
-        <div className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-dark-hover/80 border border-dark-border">
-          <div className="flex -space-x-1.5 items-center">
-            {/* You */}
-            <div
-              className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ring-2 ring-dark-surface shadow-sm"
-              style={{ backgroundColor: user?.color || '#10B981' }}
-              title={`You (${user?.name || 'Author'})`}
-            >
-              {user?.name?.charAt(0).toUpperCase() || 'U'}
-            </div>
-            {/* Active Live Online Peers */}
-            {activePeers.map((peer) => (
+        {/* Collaborator Authors Dropdown */}
+        <div className="relative" ref={authorsRef}>
+          <button
+            onClick={() => setAuthorsDropdownOpen(!authorsDropdownOpen)}
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-dark-hover/80 border border-dark-border hover:border-leaf-500/40 transition-colors"
+          >
+            {/* Avatar Stack */}
+            <div className="flex -space-x-1.5 items-center">
+              {/* You */}
               <div
-                key={peer.id}
-                className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ring-2 ring-emerald-500 animate-pulse shadow-sm"
-                style={{ backgroundColor: peer.color || '#3B82F6' }}
-                title={`${peer.name} (Live Online)`}
+                className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ring-2 ring-dark-surface shadow-sm"
+                style={{ backgroundColor: user?.color || '#10B981' }}
+                title={`You (${user?.name || 'Author'})`}
               >
-                {peer.name.charAt(0).toUpperCase()}
+                {user?.name?.charAt(0).toUpperCase() || 'U'}
               </div>
-            ))}
-          </div>
-          <span className="text-[11px] font-mono text-dark-muted hidden lg:inline ml-1.5">
-            {activePeers.length > 0 ? (
-              <span className="text-emerald-400 font-medium">● {activePeers[0].name} online</span>
+              {/* Active Live Online Peers */}
+              {activePeers.slice(0, 2).map((peer) => (
+                <div
+                  key={peer.id}
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ring-2 ring-emerald-500 animate-pulse shadow-sm"
+                  style={{ backgroundColor: peer.color || '#3B82F6' }}
+                  title={`${peer.name} (Live Online)`}
+                >
+                  {peer.name.charAt(0).toUpperCase()}
+                </div>
+              ))}
+              {/* Overflow indicator */}
+              {collaborators.length > 3 && (
+                <div className="w-5 h-5 rounded-full bg-dark-border ring-2 ring-dark-surface flex items-center justify-center text-[9px] font-bold text-dark-text">
+                  +{collaborators.length - 3}
+                </div>
+              )}
+            </div>
+
+            <span className="text-[11px] font-mono text-dark-muted hidden lg:inline ml-1">
+              {totalAuthors} Author{totalAuthors !== 1 ? 's' : ''}
+            </span>
+            {authorsDropdownOpen ? (
+              <ChevronUp className="w-3 h-3 text-dark-muted hidden lg:block" />
             ) : (
-              <span>1 Author</span>
+              <ChevronDown className="w-3 h-3 text-dark-muted hidden lg:block" />
             )}
-          </span>
+          </button>
+
+          {/* Authors Dropdown Panel */}
+          {authorsDropdownOpen && (
+            <div className="absolute top-full right-0 mt-1.5 w-64 glass-dropdown rounded-lg py-2 z-50 shadow-xl">
+              <div className="px-3 py-1 text-[10px] font-mono text-dark-muted uppercase tracking-wider font-semibold">
+                Project Authors ({totalAuthors})
+              </div>
+              <div className="max-h-48 overflow-y-auto my-1 space-y-0.5 px-1">
+                {collaborators.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-dark-muted">
+                    <div className="flex items-center space-x-2">
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+                        style={{ backgroundColor: user?.color || '#10B981' }}
+                      >
+                        {user?.name?.charAt(0).toUpperCase() || 'U'}
+                      </div>
+                      <div>
+                        <div className="text-xs text-white font-medium">{user?.name || 'You'}</div>
+                        <div className="text-[10px] text-dark-muted font-mono flex items-center space-x-1">
+                          <Crown className="w-3 h-3 text-amber-400" />
+                          <span>Owner</span>
+                          <span className="text-emerald-400 ml-1">● Online</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  collaborators.map((c, i) => {
+                    const isOnline = activePeerNames.has(c.name.toLowerCase()) || c.role === 'owner';
+                    return (
+                      <div
+                        key={c.id || i}
+                        className="flex items-center space-x-2.5 px-2 py-1.5 rounded-md hover:bg-dark-hover transition-colors"
+                      >
+                        <div
+                          className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 ${
+                            isOnline ? 'ring-2 ring-emerald-500' : ''
+                          }`}
+                          style={{ backgroundColor: c.color || '#10B981' }}
+                        >
+                          {c.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs text-white font-medium truncate">{c.name}</div>
+                          <div className="text-[10px] text-dark-muted font-mono flex items-center space-x-1">
+                            {c.role === 'owner' ? (
+                              <><Crown className="w-3 h-3 text-amber-400" /><span>Owner</span></>
+                            ) : (
+                              <><Pencil className="w-3 h-3 text-leaf-400" /><span>Editor</span></>
+                            )}
+                            {isOnline && (
+                              <span className="text-emerald-400 ml-1">● Online</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div className="border-t border-dark-border mt-1 pt-1 px-1">
+                <button
+                  onClick={() => {
+                    setAuthorsDropdownOpen(false);
+                    onOpenShare();
+                  }}
+                  className="w-full text-left px-3 py-1.5 text-xs font-medium text-leaf-400 hover:bg-leaf-500/10 rounded flex items-center space-x-1.5 font-mono"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Invite Co-Author</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Git Pull Button */}

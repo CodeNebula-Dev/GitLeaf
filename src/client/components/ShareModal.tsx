@@ -14,7 +14,6 @@ import {
   Github,
   CheckCircle2,
   AlertCircle,
-  Sparkles,
   UserPlus,
   Lock,
 } from 'lucide-react';
@@ -350,7 +349,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, project
                   <div className="p-3 rounded-lg bg-leaf-500/10 border border-leaf-500/30 flex items-center justify-between">
                     <div className="space-y-0.5">
                       <div className="text-xs font-semibold text-leaf-300 flex items-center space-x-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-leaf-400" />
+                        <Github className="w-3.5 h-3.5 text-leaf-400" />
                         <span>1-Click Private Repo Creation</span>
                       </div>
                       <p className="text-[11px] text-dark-muted">

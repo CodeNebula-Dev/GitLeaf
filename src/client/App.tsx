@@ -121,6 +121,7 @@ export const App: React.FC = () => {
             projects={projects}
             user={user}
             activePeers={activePeers}
+            collaborators={currentProject?.collaborators || []}
             onSelectProject={setCurrentProject}
             onBackToDashboard={handleBackToDashboard}
             onCompile={compile}
@@ -146,6 +147,7 @@ export const App: React.FC = () => {
               onSelectFile={setActiveFilePath}
               onCreateFile={createFile}
               onDeleteFile={deleteFile}
+              mainFile={currentProject?.mainFile || 'main.tex'}
             />
 
             {/* Center: Monaco LaTeX Editor with Live CRDT sync */}

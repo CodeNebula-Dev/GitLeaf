@@ -115,7 +115,8 @@ export class ProjectManager {
         }
 
         const fullPath = path.join(dir, entry.name);
-        const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
+        // Always use forward slashes for paths (cross-platform compatibility)
+        const relPath = (relDir ? `${relDir}/${entry.name}` : entry.name).replace(/\\/g, '/');
 
         if (entry.isDirectory()) {
           files.push({
