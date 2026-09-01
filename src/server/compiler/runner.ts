@@ -49,11 +49,11 @@ export class LatexCompiler {
   ): Promise<CompilationResult> {
     return new Promise((resolve) => {
       let cmd = 'tectonic';
-      let args: string[] = ['--synctex', '--keep-logs', '--print', mainFile];
+      let args: string[] = ['-r', '2', '--synctex', '--keep-logs', '--print', mainFile];
 
       if (systemStatus.hasTectonic && systemStatus.tectonicPath) {
         cmd = systemStatus.tectonicPath;
-        args = ['--synctex', '--keep-logs', '--print', mainFile];
+        args = ['-r', '2', '--synctex', '--keep-logs', '--print', mainFile];
       } else if (systemStatus.hasPdflatex) {
         cmd = systemStatus.pdflatexPath || 'pdflatex';
         args = ['-synctex=1', '-interaction=nonstopmode', '-file-line-error', mainFile];

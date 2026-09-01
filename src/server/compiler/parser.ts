@@ -26,11 +26,21 @@ export function parseLatexLog(logContent: string, defaultFile: string = 'main.te
     // 2. Tectonic Warning format: warning: file.tex:line: message OR warning: message
     const tectonicWarnMatch = line.match(/^warning:\s*(?:(.+?):(\d+):\s*)?(.+)$/i);
     if (tectonicWarnMatch) {
+      const warnMsg = tectonicWarnMatch[3].trim();
+      // Skip benign rerun instructions that Tectonic resolves automatically
+      if (
+        warnMsg.includes('Rerun to get') ||
+        warnMsg.includes('inputenc package ignored') ||
+        warnMsg.includes('rerunfilecheck')
+      ) {
+        continue;
+      }
+
       diagnostics.push({
         type: 'warning',
         file: tectonicWarnMatch[1]?.trim() || currentFile,
         line: tectonicWarnMatch[2] ? parseInt(tectonicWarnMatch[2], 10) : 1,
-        message: tectonicWarnMatch[3].trim(),
+        message: warnMsg,
         raw: line,
       });
       continue;
@@ -54,6 +64,15 @@ export function parseLatexLog(logContent: string, defaultFile: string = 'main.te
       line.includes('Overfull \\hbox') ||
       line.includes('Underfull \\hbox')
     ) {
+      // Skip benign rerun instructions
+      if (
+        line.includes('Rerun to get') ||
+        line.includes('inputenc package ignored') ||
+        line.includes('rerunfilecheck')
+      ) {
+        continue;
+      }
+
       const lineNumMatch = line.match(/input line (\d+)/i) || line.match(/line (\d+)/i) || line.match(/lines (\d+)--\d+/i);
       const lineNum = lineNumMatch ? parseInt(lineNumMatch[1], 10) : 1;
 
