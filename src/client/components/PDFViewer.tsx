@@ -130,11 +130,22 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             }}
             className="transition-all duration-100 ease-out shadow-2xl rounded-lg bg-white overflow-hidden flex flex-col"
           >
-            <iframe
-              src={`${fullPdfUrl}#view=FitH&toolbar=0`}
-              title="Compiled LaTeX Document Preview"
+            <object
+              data={`${fullPdfUrl}#view=FitH&toolbar=0`}
+              type="application/pdf"
               className="w-full h-full min-h-[750px] border-0 flex-1 bg-white"
-            />
+            >
+              <embed
+                src={`${fullPdfUrl}#view=FitH&toolbar=0`}
+                type="application/pdf"
+                className="w-full h-full min-h-[750px] border-0 flex-1 bg-white"
+              />
+              <iframe
+                src={`${fullPdfUrl}#view=FitH&toolbar=0`}
+                title="Compiled LaTeX Document Preview"
+                className="w-full h-full min-h-[750px] border-0 flex-1 bg-white"
+              />
+            </object>
           </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-center p-8 max-w-sm text-dark-muted my-auto">

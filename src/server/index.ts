@@ -217,7 +217,7 @@ app.get('/api/projects/:id/pdf', (req, res) => {
   if (!project) return res.status(404).send('Project not found');
 
   const mainBase = (project.mainFile || 'main.tex').replace(/\.tex$/i, '');
-  const pdfPath = path.join(project.rootPath, `${mainBase}.pdf`);
+  const pdfPath = path.resolve(project.rootPath, `${mainBase}.pdf`);
 
   if (!fs.existsSync(pdfPath)) {
     return res.status(404).send('PDF not yet compiled. Click Recompile in the editor.');
@@ -229,7 +229,7 @@ app.get('/api/projects/:id/pdf', (req, res) => {
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
   
-  fs.createReadStream(pdfPath).pipe(res);
+  res.sendFile(pdfPath);
 });
 
 app.get('/api/projects/:id/export', (req, res) => {
