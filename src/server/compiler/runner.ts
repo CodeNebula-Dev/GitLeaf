@@ -92,7 +92,8 @@ export class LatexCompiler {
         const hasPdf = fs.existsSync(pdfPath);
 
         const diagnostics = parseLatexLog(fullLog, mainFile);
-        const success = (code === 0);
+        const hasErrors = diagnostics.some((d) => d.type === 'error');
+        const success = hasPdf && (code === 0 || !hasErrors);
 
         // If compilation failed and no diagnostics parsed, extract meaningful error message
         if (!success && diagnostics.length === 0) {

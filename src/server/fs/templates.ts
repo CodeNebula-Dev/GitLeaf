@@ -3,7 +3,6 @@ export const TEMPLATES: Record<string, { mainFile: string; files: Record<string,
     mainFile: 'main.tex',
     files: {
       'main.tex': `\\documentclass{article}
-\\usepackage[utf8]{inputenc}
 \\usepackage{amsmath,amssymb}
 \\usepackage{graphicx}
 \\usepackage{hyperref}
@@ -27,7 +26,6 @@ Start typing your paper here...
     mainFile: 'main.tex',
     files: {
       'main.tex': `\\documentclass[11pt,a4paper]{article}
-\\usepackage[utf8]{inputenc}
 \\usepackage{amsmath,amssymb}
 \\usepackage{graphicx}
 \\usepackage{hyperref}
