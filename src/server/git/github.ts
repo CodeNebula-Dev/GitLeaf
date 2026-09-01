@@ -402,7 +402,12 @@ export class GitHubService {
         body: JSON.stringify({ permission: 'push' }),
       });
 
-      const data = await res.json();
+      let data: any = {};
+      if (res.status !== 204) {
+        try {
+          data = await res.json();
+        } catch {}
+      }
 
       // 201 = Invitation created, 204 = User already a collaborator
       if (res.status === 201 || res.status === 204) {
