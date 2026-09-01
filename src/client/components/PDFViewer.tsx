@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ZoomIn, ZoomOut, RotateCcw, Download, ExternalLink, FileQuestion, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
 import { CompilationResult } from '../../shared/types.js';
 
@@ -15,6 +15,12 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
 }) => {
   const [zoom, setZoom] = useState<number>(100);
   const [refreshKey, setRefreshKey] = useState<number>(Date.now());
+
+  useEffect(() => {
+    if (compilationResult?.timestamp) {
+      setRefreshKey(compilationResult.timestamp);
+    }
+  }, [compilationResult?.timestamp]);
 
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 15, 200));
   const handleZoomOut = () => setZoom((prev) => Math.max(prev - 15, 50));

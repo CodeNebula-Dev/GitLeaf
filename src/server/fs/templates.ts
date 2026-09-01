@@ -1,4 +1,42 @@
 export const TEMPLATES: Record<string, { mainFile: string; files: Record<string, string> }> = {
+  'article-simple': {
+    mainFile: 'main.tex',
+    files: {
+      'main.tex': `\\documentclass[11pt,a4paper]{article}
+\\usepackage[utf8]{inputenc}
+\\usepackage{amsmath,amssymb}
+\\usepackage{graphicx}
+\\usepackage{hyperref}
+
+\\title{Your Paper Title}
+\\author{Your Name}
+\\date{\\today}
+
+\\begin{document}
+
+\\maketitle
+
+\\begin{abstract}
+Your abstract goes here. Briefly describe the background, methodology, and key findings of your paper.
+\\end{abstract}
+
+\\section{Introduction}
+Start writing your paper here. You can add formulas, sections, figures, and references.
+
+\\begin{equation}
+E = mc^2
+\\end{equation}
+
+\\section{Methodology}
+Describe your approach and experimental setup.
+
+\\section{Conclusion}
+Summarize your results and future work.
+
+\\end{document}
+`,
+    },
+  },
   'ieee-conference': {
     mainFile: 'main.tex',
     files: {
@@ -24,8 +62,11 @@ Your abstract goes here.
 \\section{Introduction}
 Start writing your paper here.
 
+\\section{Methodology}
+Describe your methodology and system architecture.
+
 \\section{Conclusion}
-Your conclusions.
+Summarize your findings.
 
 \\begin{thebibliography}{00}
 \\bibitem{b1} Author, "Title," \\textit{Journal}, year.
@@ -62,16 +103,18 @@ Your abstract goes here.
 \\section{Introduction}
 Start writing your paper here.
 
+\\section{Conclusion}
+Summarize your conclusions.
+
 \\end{document}
 `,
     },
   },
-  'article-simple': {
+  'blank': {
     mainFile: 'main.tex',
     files: {
       'main.tex': `\\documentclass{article}
 \\usepackage[utf8]{inputenc}
-\\usepackage{amsmath}
 
 \\title{Your Paper Title}
 \\author{Your Name}
@@ -82,20 +125,7 @@ Start writing your paper here.
 \\maketitle
 
 \\section{Introduction}
-Start writing here.
-
-\\end{document}
-`,
-    },
-  },
-  'blank': {
-    mainFile: 'main.tex',
-    files: {
-      'main.tex': `\\documentclass{article}
-
-\\begin{document}
-
-Hello, world!
+Start typing here...
 
 \\end{document}
 `,

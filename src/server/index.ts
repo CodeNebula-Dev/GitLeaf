@@ -168,9 +168,15 @@ app.delete('/api/projects/:id/files', (req, res) => {
 app.post('/api/projects/:id/compile', async (req, res) => {
   const project = projectManager.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
-  const { mainFile, engine } = req.body;
+  const { mainFile, engine, content } = req.body;
+  const targetFile = mainFile || project.mainFile || 'main.tex';
 
-  // 1. Pull latest changes from co-authors before compiling
+  // 1. Immediately persist active editor content to disk if provided
+  if (typeof content === 'string' && content.trim().length > 0) {
+    projectManager.writeFile(project.rootPath, targetFile, content);
+  }
+
+  // 2. Pull latest changes from co-authors before compiling
   if (project.gitRemote || GitSync.getRemote(project.rootPath)) {
     try {
       GitSync.pull(project.rootPath);
@@ -179,7 +185,7 @@ app.post('/api/projects/:id/compile', async (req, res) => {
 
   const result = await latexCompiler.compile(
     project.rootPath,
-    mainFile || project.mainFile || 'main.tex',
+    targetFile,
     engine || project.engine,
     project.id
   );

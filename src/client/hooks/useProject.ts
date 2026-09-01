@@ -181,10 +181,12 @@ export function useProject() {
     if (!currentProject) return;
     setIsCompiling(true);
 
-    // If file is loaded and has unsaved edits, save immediately before compiling
-    if (fileLoadedRef.current && activeFilePath) {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      await saveContent(activeFilePath, activeFileContent);
+    const targetFile = currentProject.mainFile || 'main.tex';
+
+    // Flush any pending save timeout
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    if (activeFilePath && activeFileContent) {
+      saveContent(activeFilePath, activeFileContent);
     }
 
     try {
@@ -192,8 +194,9 @@ export function useProject() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mainFile: currentProject.mainFile || 'main.tex',
+          mainFile: targetFile,
           engine: currentProject.engine,
+          content: activeFilePath === targetFile ? activeFileContent : undefined,
         }),
       });
       if (res.ok) {

@@ -58,7 +58,10 @@ export class ProjectManager {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      fs.writeFileSync(fullPath, content, 'utf-8');
+      const customContent = content
+        .replace(/\\title\{Your Paper Title\}/g, `\\title{${name}}`)
+        .replace(/\\title\{Paper Title\}/g, `\\title{${name}}`);
+      fs.writeFileSync(fullPath, customContent, 'utf-8');
     }
 
     const meta: ProjectMetadata = {
