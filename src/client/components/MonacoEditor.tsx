@@ -32,9 +32,6 @@ export interface PeerUser {
 
 export const MonacoEditor: React.FC<MonacoEditorProps> = ({
   projectId,
-  projectName,
-  gitRemote,
-  remoteHost,
   filePath,
   content,
   onChange,
@@ -53,10 +50,9 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
   const bindingRef = useRef<MonacoBinding | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null);
-  const globalProviderRef = useRef<WebsocketProvider | null>(null);
   const ydocRef = useRef<Y.Doc | null>(null);
-  const prevFilePathRef = useRef<string>(filePath);
-  const contentSyncTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -67,7 +63,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
       monaco.languages.register({ id: 'latex' });
     }
 
-    // Set Custom Rich Monarch Tokenizer for LaTeX syntax highlighting
+    // Set Custom Monarch Tokenizer for LaTeX syntax highlighting
     monaco.languages.setMonarchTokensProvider('latex', {
       defaultToken: '',
       tokenPostfix: '.latex',
@@ -157,12 +153,12 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
       inherit: true,
       rules: [
         { token: 'comment', foreground: '64748B', fontStyle: 'italic' },
-        { token: 'keyword', foreground: '34D399', fontStyle: 'bold' }, // Vibrant Leaf Green
-        { token: 'type', foreground: '38BDF8' }, // Sky Blue commands
-        { token: 'type.class', foreground: 'A78BFA', fontStyle: 'bold' }, // Violet environments
-        { token: 'type.identifier', foreground: 'F472B6' }, // Pink citations
-        { token: 'tag', foreground: 'FBBF24' }, // Amber labels & refs
-        { token: 'string.math', foreground: 'FB923C' }, // Git Orange math mode
+        { token: 'keyword', foreground: '34D399', fontStyle: 'bold' },
+        { token: 'type', foreground: '38BDF8' },
+        { token: 'type.class', foreground: 'A78BFA', fontStyle: 'bold' },
+        { token: 'type.identifier', foreground: 'F472B6' },
+        { token: 'tag', foreground: 'FBBF24' },
+        { token: 'string.math', foreground: 'FB923C' },
         { token: 'string.math.display', foreground: 'F97316', fontStyle: 'bold' },
         { token: 'delimiter', foreground: 'CBD5E1' },
         { token: 'number', foreground: 'FCD34D' },
@@ -265,7 +261,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     });
   };
 
-  // Real-Time Yjs WebSocket Collaboration Setup (local server only — reliable)
+  // Real-Time Yjs WebSocket Collaboration Setup (Dedicated Local GitLeaf Server)
   useEffect(() => {
     if (!editorRef.current || !projectId || !filePath) return;
 
@@ -291,32 +287,9 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     const wsUrl = `${protocol}//${targetHost}/ws`;
     const roomName = `${projectId}:${filePath}`;
 
-    // 1. Local WebSocket provider — handles CRDT sync + local disk persistence
+    // Connect to local GitLeaf WebSocket relay
     const provider = new WebsocketProvider(wsUrl, roomName, ydoc, { connect: true });
     providerRef.current = provider;
-
-    // 2. Global Peer Relay Provider — connects co-authors across different laptops in real-time (<20ms)
-    const rawTarget = gitRemote || projectName || projectId || 'gitleaf-paper';
-    const cleanSlug = rawTarget
-      .replace(/https?:\/\/github\.com\//i, '')
-      .replace(/\.git$/i, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]/g, '-');
-    const globalRoom = `gitleaf-mesh-${cleanSlug}:${filePath}`;
-    let globalProvider: WebsocketProvider | null = null;
-    try {
-      globalProvider = new WebsocketProvider('wss://demos.yjs.dev/ws', globalRoom, ydoc, { connect: true });
-      globalProviderRef.current = globalProvider;
-
-      globalProvider.awareness.setLocalStateField('user', {
-        name: user?.name || 'Co-Author',
-        color: user?.color || '#10B981',
-      });
-
-      globalProvider.on('status', (event: { status: 'connected' | 'connecting' | 'disconnected' }) => {
-        if (event.status === 'connected') setSyncStatus('connected');
-      });
-    } catch {}
 
     provider.on('status', (event: { status: 'connected' | 'connecting' | 'disconnected' }) => {
       setSyncStatus(event.status);
@@ -331,10 +304,9 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
     const updatePeers = () => {
       const localStates = provider.awareness.getStates();
-      const globalStates = globalProvider?.awareness.getStates() || new Map();
       const peersMap = new Map<string, PeerUser>();
 
-      const addState = (state: any, clientID: number) => {
+      localStates.forEach((state: any, clientID: number) => {
         if (state.user && clientID !== ydoc.clientID) {
           const key = state.user.name || `peer-${clientID}`;
           peersMap.set(key, {
@@ -343,10 +315,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
             color: state.user.color || '#3B82F6',
           });
         }
-      };
-
-      localStates.forEach(addState);
-      globalStates.forEach(addState);
+      });
 
       const peerList = Array.from(peersMap.values());
       setActivePeers(peerList);
@@ -354,20 +323,14 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     };
 
     provider.awareness.on('change', updatePeers);
-    if (globalProvider) {
-      globalProvider.awareness.on('change', updatePeers);
-    }
 
     const yText = ydoc.getText('monaco');
-
-    // NOTE: Do NOT seed content from `content` prop here.
-    // The `content` prop may be stale (from the previous file) during file switches.
-    // Content seeding is handled by the content-sync effect below, which fires 
-    // once the correct content arrives from the server.
-
     const model = editorRef.current.getModel();
 
     if (model) {
+      // Set initial model text from loaded content
+      model.setValue(content || '');
+
       const binding = new MonacoBinding(
         yText,
         model,
@@ -379,9 +342,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
       // Sync changes back to React state and parent
       yText.observe(() => {
         const text = yText.toString();
-        if (text) {
-          onChange(text);
-        }
+        onChangeRef.current(text);
       });
     }
 
@@ -389,7 +350,9 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
       if (isSynced) {
         const text = yText.toString();
         if (text) {
-          onChange(text);
+          onChangeRef.current(text);
+        } else if (content) {
+          yText.insert(0, content);
         }
       }
     });
@@ -403,49 +366,12 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
         providerRef.current.destroy();
         providerRef.current = null;
       }
-      if (globalProviderRef.current) {
-        globalProviderRef.current.destroy();
-        globalProviderRef.current = null;
-      }
       if (ydocRef.current) {
         ydocRef.current.destroy();
         ydocRef.current = null;
       }
     };
   }, [projectId, filePath, user?.name, user?.color]);
-
-  // Keep editor in sync when content updates externally (from server fetch / git pull)
-  // This effect is guarded to prevent seeding stale content during file switches.
-  useEffect(() => {
-    // Skip if no Yjs doc is active
-    if (!ydocRef.current) return;
-    // Skip if content is empty (file is still loading during a switch)
-    if (!content) return;
-
-    // Debounce to avoid rapid overwrites during file transitions
-    if (contentSyncTimerRef.current) {
-      clearTimeout(contentSyncTimerRef.current);
-    }
-
-    contentSyncTimerRef.current = setTimeout(() => {
-      if (!ydocRef.current) return;
-      const yText = ydocRef.current.getText('monaco');
-      const currentVal = yText.toString();
-      // Only update if the content actually differs (prevents feedback loops)
-      if (content && content !== currentVal) {
-        ydocRef.current.transact(() => {
-          yText.delete(0, yText.length);
-          yText.insert(0, content);
-        });
-      }
-    }, 50); // Small delay to let file switching settle
-
-    return () => {
-      if (contentSyncTimerRef.current) {
-        clearTimeout(contentSyncTimerRef.current);
-      }
-    };
-  }, [content]);
 
   // Jump to Line when targetJumpLine is set
   useEffect(() => {
@@ -501,7 +427,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
           ) : syncStatus === 'connecting' ? (
             <div className="flex items-center space-x-1 text-[11px] font-mono text-amber-400">
               <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-              <span>Connecting Mesh...</span>
+              <span>Connecting...</span>
             </div>
           ) : (
             <div className="flex items-center space-x-1 text-[11px] font-mono text-dark-muted">
@@ -542,8 +468,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
         <Editor
           height="100%"
           language={getLanguage(filePath)}
-          value={content}
-          onChange={(val) => onChange(val || '')}
+          defaultValue={content || ''}
           onMount={handleEditorDidMount}
           theme="gitleaf-dark"
           options={{

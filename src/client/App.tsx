@@ -153,6 +153,7 @@ export const App: React.FC = () => {
             {/* Center: Monaco LaTeX Editor with Live CRDT sync */}
             <div className="flex-1 flex flex-col h-full min-w-[320px] overflow-hidden border-r border-dark-border">
               <MonacoEditor
+                key={`${currentProject?.id || 'proj'}:${activeFilePath}`}
                 projectId={currentProject?.id}
                 projectName={currentProject?.name}
                 gitRemote={currentProject?.gitRemote}

@@ -19,16 +19,14 @@ export function useProject() {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fileLoadedRef = useRef<boolean>(false);
   const currentPathRef = useRef<string>('main.tex');
-  const fileSwitchingRef = useRef<boolean>(false);
+  const activeFileRef = useRef<string>('main.tex');
+  activeFileRef.current = activeFilePath;
 
-  // Wrapped setActiveFilePath: clears content immediately on file switch
-  // to prevent stale content from seeding a new Yjs room
+  // Wrapped setActiveFilePath: updates active path and clears stale content
   const setActiveFilePath = useCallback((newPath: string) => {
-    if (newPath !== currentPathRef.current) {
-      fileSwitchingRef.current = true;
-      fileLoadedRef.current = false;
-      setActiveFileContent(''); // Clear immediately — prevents old content leaking
-    }
+    currentPathRef.current = newPath;
+    fileLoadedRef.current = false;
+    setActiveFileContent(''); // Clear immediately so new editor doesn't show old text
     setActiveFilePathRaw(newPath);
   }, []);
 
@@ -50,9 +48,6 @@ export function useProject() {
   }, [fetchProjects]);
 
   // 2. Fetch Project Files when Current Project changes
-  const activeFileRef = useRef<string>(activeFilePath);
-  activeFileRef.current = activeFilePath;
-
   const fetchFiles = useCallback(async () => {
     if (!currentProject) return;
     try {
@@ -60,7 +55,6 @@ export function useProject() {
       if (res.ok) {
         const data = await res.json();
         setFiles(data.files);
-        if (data.project) setCurrentProject(data.project);
 
         // If project already has a compiled PDF on disk, load it into preview immediately!
         if (data.hasPdf && data.pdfUrl) {
@@ -91,13 +85,13 @@ export function useProject() {
     } catch (err) {
       console.error('Error fetching files:', err);
     }
-  }, [currentProject]);
+  }, [currentProject?.id]);
 
   useEffect(() => {
     if (currentProject) {
       fetchFiles();
     }
-  }, [currentProject, fetchFiles]);
+  }, [currentProject?.id, fetchFiles]);
 
   // 3. Fetch Active File Content Safely
   const fetchFileContent = useCallback(async (projectId: string, path: string) => {
@@ -110,11 +104,9 @@ export function useProject() {
       const res = await fetch(`/api/projects/${projectId}/file-content?path=${encodeURIComponent(path)}`);
       if (res.ok) {
         const data = await res.json();
-        // Only apply if we haven't switched to another file in the meantime
         if (currentPathRef.current === path) {
           setActiveFileContent(data.content || '');
           fileLoadedRef.current = true;
-          fileSwitchingRef.current = false;
         }
       }
     } catch (err) {
@@ -125,7 +117,7 @@ export function useProject() {
   }, []);
 
   useEffect(() => {
-    if (currentProject && activeFilePath) {
+    if (currentProject?.id && activeFilePath) {
       fetchFileContent(currentProject.id, activeFilePath);
     }
   }, [currentProject?.id, activeFilePath, fetchFileContent]);
@@ -147,7 +139,7 @@ export function useProject() {
         setIsSaving(false);
       }
     },
-    [currentProject]
+    [currentProject?.id]
   );
 
   // 4. Periodic background Git sync check (every 4 seconds)
@@ -170,7 +162,7 @@ export function useProject() {
     }, 4000);
 
     return () => clearInterval(interval);
-  }, [currentProject, fetchFiles, fetchFileContent]);
+  }, [currentProject?.id, fetchFiles, fetchFileContent]);
 
   const handleContentChange = useCallback(
     (newContent: string) => {
@@ -219,14 +211,17 @@ export function useProject() {
   const createFile = async (relPath: string, type: 'file' | 'directory' = 'file') => {
     if (!currentProject) return;
     try {
-      await fetch(`/api/projects/${currentProject.id}/files`, {
+      const res = await fetch(`/api/projects/${currentProject.id}/files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: relPath, type }),
       });
-      await fetchFiles();
-      if (type === 'file') {
-        setActiveFilePath(relPath);
+      if (res.ok) {
+        await fetchFiles();
+        if (type === 'file') {
+          setActiveFilePath(relPath);
+          setActiveFileContent(''); // Blank initial content
+        }
       }
     } catch (err) {
       console.error('Error creating file:', err);
@@ -237,12 +232,14 @@ export function useProject() {
   const deleteFile = async (relPath: string) => {
     if (!currentProject) return;
     try {
-      await fetch(`/api/projects/${currentProject.id}/files?path=${encodeURIComponent(relPath)}`, {
+      const res = await fetch(`/api/projects/${currentProject.id}/files?path=${encodeURIComponent(relPath)}`, {
         method: 'DELETE',
       });
-      await fetchFiles();
-      if (activeFilePath === relPath) {
-        setActiveFilePath('main.tex');
+      if (res.ok) {
+        await fetchFiles();
+        if (activeFilePath === relPath) {
+          setActiveFilePath('main.tex');
+        }
       }
     } catch (err) {
       console.error('Error deleting file:', err);
@@ -289,7 +286,7 @@ export function useProject() {
     }
   };
 
-  // 10. Format LaTeX Code Helper
+  // 10. Format LaTeX Code
   const formatCode = useCallback(() => {
     if (!activeFileContent) return;
     const lines = activeFileContent.split('\n');
@@ -297,54 +294,53 @@ export function useProject() {
     const formattedLines = lines.map((line) => {
       const trimmed = line.trim();
       if (!trimmed) return '';
-
-      // Decrease indent for \end{...} or \right or closing environments
-      if (trimmed.startsWith('\\end{') || trimmed.startsWith('\\right') || trimmed.endsWith('}')) {
+      if (trimmed.startsWith('\\end{') || trimmed.startsWith('}')) {
         indentLevel = Math.max(0, indentLevel - 1);
       }
-
-      const indent = '\t'.repeat(indentLevel);
-      const result = `${indent}${trimmed}`;
-
-      // Increase indent for \begin{...} or \left or opening environments
-      if (trimmed.startsWith('\\begin{') || trimmed.startsWith('\\left') || trimmed.endsWith('{')) {
-        // Exclude inline single line begin/end
-        if (!trimmed.includes('\\end{')) {
-          indentLevel++;
-        }
+      const indent = '  '.repeat(indentLevel);
+      const formatted = `${indent}${trimmed}`;
+      if (
+        (trimmed.startsWith('\\begin{') && !trimmed.includes('\\end{')) ||
+        (trimmed.endsWith('{') && !trimmed.startsWith('%'))
+      ) {
+        indentLevel++;
       }
-
-      return result;
+      return formatted;
     });
-
-    const newFormatted = formattedLines.join('\n');
-    setActiveFileContent(newFormatted);
-    saveContent(activeFilePath, newFormatted);
+    const result = formattedLines.join('\n');
+    setActiveFileContent(result);
+    saveContent(activeFilePath, result);
   }, [activeFileContent, activeFilePath, saveContent]);
 
-  // 11. Git Push (Manual push to GitHub cloud)
+  // 11. Git Push (Explicit user action)
   const gitPush = async (userName?: string) => {
     if (!currentProject) return;
     setIsPushing(true);
+
+    if (fileLoadedRef.current && activeFilePath) {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      await saveContent(activeFilePath, activeFileContent);
+    }
+
     try {
-      if (activeFilePath) {
-        await saveContent(activeFilePath, activeFileContent);
-      }
       const res = await fetch(`/api/projects/${currentProject.id}/git/push`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userName }),
+        body: JSON.stringify({ userName: userName || 'Author' }),
       });
       const data = await res.json();
+      if (data.success) {
+        await fetchFiles();
+      }
       return data;
-    } catch (err) {
-      console.error('Error pushing to Git:', err);
+    } catch (err: any) {
+      return { success: false, error: err.message };
     } finally {
       setIsPushing(false);
     }
   };
 
-  // 12. Git Pull (Manual pull from GitHub cloud)
+  // 12. Git Pull (Explicit user action)
   const gitPull = async () => {
     if (!currentProject) return;
     setIsPulling(true);
@@ -353,56 +349,58 @@ export function useProject() {
         method: 'POST',
       });
       const data = await res.json();
-      await fetchFiles();
-      if (currentPathRef.current) {
-        await fetchFileContent(currentProject.id, currentPathRef.current);
+      if (data.success) {
+        await fetchFiles();
+        if (currentPathRef.current) {
+          await fetchFileContent(currentProject.id, currentPathRef.current);
+        }
       }
       return data;
-    } catch (err) {
-      console.error('Error pulling from Git:', err);
+    } catch (err: any) {
+      return { success: false, error: err.message };
     } finally {
       setIsPulling(false);
     }
   };
 
-  // 13. Jump to Diagnostic
-  const jumpToLine = (file: string, line: number) => {
-    if (file && file !== activeFilePath) {
+  const jumpToLine = useCallback((file: string, line: number) => {
+    if (file && file !== currentPathRef.current) {
       setActiveFilePath(file);
     }
     setTargetJumpLine(line);
-  };
+  }, [setActiveFilePath]);
 
   return {
     projects,
     currentProject,
-    setCurrentProject,
     files,
     activeFilePath,
-    setActiveFilePath,
     activeFileContent,
-    setActiveFileContent,
-    handleContentChange,
     compilationResult,
     isCompiling,
     isSaving,
     isPushing,
     isPulling,
-    gitPush,
-    gitPull,
     isFileLoading,
     cursorPosition,
-    setCursorPosition,
     targetJumpLine,
-    setTargetJumpLine,
+    setCurrentProject,
+    setActiveFilePath,
+    setActiveFileContent,
+    handleContentChange,
     compile,
-    formatCode,
     createFile,
     deleteFile,
     createProject,
     deleteProject,
-    jumpToLine,
-    refreshFiles: fetchFiles,
+    formatCode,
+    setCursorPosition,
+    setTargetJumpLine,
+    fetchProjects,
+    fetchFiles,
     refreshProjects: fetchProjects,
+    jumpToLine,
+    gitPush,
+    gitPull,
   };
 }
