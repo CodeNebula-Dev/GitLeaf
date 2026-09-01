@@ -259,6 +259,12 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     editor.onDidChangeCursorPosition((e: any) => {
       onCursorChange({ line: e.position.lineNumber, column: e.position.column });
     });
+
+    // Directly propagate every keystroke to React state & auto-save immediately
+    editor.onDidChangeModelContent(() => {
+      const val = editor.getValue();
+      onChangeRef.current(val);
+    });
   };
 
   // Real-Time Yjs WebSocket Collaboration Setup (Dedicated Local GitLeaf Server)
@@ -491,7 +497,8 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
         <Editor
           height="100%"
           language={getLanguage(filePath)}
-          defaultValue={content || ''}
+          value={content}
+          onChange={(val) => onChange(val || '')}
           onMount={handleEditorDidMount}
           theme="gitleaf-dark"
           options={{

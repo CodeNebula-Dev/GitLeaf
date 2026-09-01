@@ -32,17 +32,11 @@ export class LatexCompiler {
 
     // 1. Try Native TeX Compiler (Tectonic / pdflatex / xelatex)
     if (selectedEngine !== 'wasm' && (systemStatus.hasTectonic || systemStatus.hasPdflatex || systemStatus.hasXelatex)) {
-      try {
-        const nativeRes = await this.runNativeCompiler(projectRoot, mainFile, systemStatus, startTime, projectId);
-        if (nativeRes.success && nativeRes.pdfPath && fs.existsSync(nativeRes.pdfPath)) {
-          return nativeRes;
-        }
-      } catch (err: any) {
-        console.warn(`Native compiler encountered error: ${err.message}. Falling back to high-fidelity PDFKit engine.`);
-      }
+      const nativeRes = await this.runNativeCompiler(projectRoot, mainFile, systemStatus, startTime, projectId);
+      return nativeRes;
     }
 
-    // 2. High-Fidelity Multi-Page PDFKit Academic Engine Fallback
+    // 2. High-Fidelity Multi-Page PDFKit Academic Engine Fallback (When no native TeX compiler is installed)
     return await this.runAcademicPdfEngine(projectRoot, mainFile, startTime, projectId);
   }
 
@@ -94,12 +88,12 @@ export class LatexCompiler {
         const hasPdf = fs.existsSync(pdfPath);
 
         const diagnostics = parseLatexLog(fullLog, mainFile);
-        const success = (code === 0 || hasPdf);
+        const success = (code === 0);
 
         resolve({
           success,
-          pdfUrl: hasPdf ? `/api/projects/${projectId || path.basename(projectRoot)}/pdf?t=${Date.now()}` : undefined,
-          pdfPath: hasPdf ? pdfPath : undefined,
+          pdfUrl: (success && hasPdf) ? `/api/projects/${projectId || path.basename(projectRoot)}/pdf?t=${Date.now()}` : undefined,
+          pdfPath: (success && hasPdf) ? pdfPath : undefined,
           diagnostics,
           log: fullLog,
           durationMs: Date.now() - startTime,
@@ -134,9 +128,31 @@ export class LatexCompiler {
   ): Promise<CompilationResult> {
     return new Promise((resolve) => {
       try {
-        const rawTex = fs.readFileSync(path.join(projectRoot, mainFile), 'utf-8');
+        const fullPath = path.join(projectRoot, mainFile);
+        const rawTex = fs.existsSync(fullPath) ? fs.readFileSync(fullPath, 'utf-8') : '';
         const baseName = mainFile.replace(/\.tex$/i, '');
         const pdfPath = path.join(projectRoot, `${baseName}.pdf`);
+
+        if (!rawTex.trim() || !rawTex.includes('\\begin{document}')) {
+          // Remove stale PDF if document is invalid/empty
+          if (fs.existsSync(pdfPath)) {
+            try { fs.unlinkSync(pdfPath); } catch {}
+          }
+          return resolve({
+            success: false,
+            diagnostics: [
+              {
+                type: 'error',
+                file: mainFile,
+                line: 1,
+                message: 'LaTeX document is empty or missing \\begin{document}.',
+              },
+            ],
+            log: 'Error: Cannot compile empty LaTeX document.',
+            durationMs: Date.now() - startTime,
+            timestamp: Date.now(),
+          });
+        }
 
         // Parse essential TeX elements
         const titleMatch = rawTex.match(/\\title\{([\s\S]*?)\}(?=\s*\\author|\s*\\date|\s*\\begin\{document\}|\s*\\maketitle)/);

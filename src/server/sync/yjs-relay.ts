@@ -32,7 +32,8 @@ export class YjsSyncRelay {
       conn.binaryType = 'arraybuffer';
 
       const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
-      const rawRoom = url.pathname.replace(/^\/ws\/?/, '') || url.searchParams.get('room') || 'default';
+      const rawPath = url.pathname.replace(/^\/ws\/?/, '') || url.searchParams.get('room') || 'default';
+      const rawRoom = decodeURIComponent(rawPath);
       const [projectId, ...fileParts] = rawRoom.split(':');
       const filePath = fileParts.join(':') || 'main.tex';
 
