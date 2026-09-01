@@ -7,7 +7,7 @@ import { parseLatexLog } from './parser.js';
 import { detectSystemTeX } from '../../cli/system.js';
 
 export class LatexCompiler {
-  public async compile(projectRoot: string, mainFile: string = 'main.tex', engine?: string): Promise<CompilationResult> {
+  public async compile(projectRoot: string, mainFile: string = 'main.tex', engine?: string, projectId?: string): Promise<CompilationResult> {
     const startTime = Date.now();
     const systemStatus = detectSystemTeX();
     const selectedEngine = engine || systemStatus.preferredEngine;
@@ -33,7 +33,7 @@ export class LatexCompiler {
     // 1. Try Native TeX Compiler (Tectonic / pdflatex / xelatex)
     if (selectedEngine !== 'wasm' && (systemStatus.hasTectonic || systemStatus.hasPdflatex || systemStatus.hasXelatex)) {
       try {
-        const nativeRes = await this.runNativeCompiler(projectRoot, mainFile, systemStatus, startTime);
+        const nativeRes = await this.runNativeCompiler(projectRoot, mainFile, systemStatus, startTime, projectId);
         if (nativeRes.success && nativeRes.pdfPath && fs.existsSync(nativeRes.pdfPath)) {
           return nativeRes;
         }
@@ -43,14 +43,15 @@ export class LatexCompiler {
     }
 
     // 2. High-Fidelity Multi-Page PDFKit Academic Engine Fallback
-    return await this.runAcademicPdfEngine(projectRoot, mainFile, startTime);
+    return await this.runAcademicPdfEngine(projectRoot, mainFile, startTime, projectId);
   }
 
   private runNativeCompiler(
     projectRoot: string,
     mainFile: string,
     systemStatus: ReturnType<typeof detectSystemTeX>,
-    startTime: number
+    startTime: number,
+    projectId?: string
   ): Promise<CompilationResult> {
     return new Promise((resolve) => {
       let cmd = 'tectonic';
@@ -97,7 +98,7 @@ export class LatexCompiler {
 
         resolve({
           success,
-          pdfUrl: hasPdf ? `/api/projects/${path.basename(projectRoot)}/pdf?t=${Date.now()}` : undefined,
+          pdfUrl: hasPdf ? `/api/projects/${projectId || path.basename(projectRoot)}/pdf?t=${Date.now()}` : undefined,
           pdfPath: hasPdf ? pdfPath : undefined,
           diagnostics,
           log: fullLog,
@@ -128,7 +129,8 @@ export class LatexCompiler {
   private async runAcademicPdfEngine(
     projectRoot: string,
     mainFile: string,
-    startTime: number
+    startTime: number,
+    projectId?: string
   ): Promise<CompilationResult> {
     return new Promise((resolve) => {
       try {
@@ -149,168 +151,81 @@ export class LatexCompiler {
 
         // Extract sections and body text
         const sections = this.extractSections(rawTex);
+        const references = this.extractBibliography(rawTex);
 
-        // Extract bibliography
-        const bibItems = this.extractBibliography(rawTex);
-
-        // Setup PDF Document with standard Letter dimensions and margins (0.75 in = 54 pt)
+        // Generate PDF
         const doc = new PDFDocument({
-          size: 'LETTER',
+          size: 'A4',
           margins: { top: 54, bottom: 54, left: 54, right: 54 },
           bufferPages: true,
-          autoFirstPage: true,
         });
 
         const writeStream = fs.createWriteStream(pdfPath);
         doc.pipe(writeStream);
 
-        // Title Block
-        doc
-          .font('Helvetica-Bold')
-          .fontSize(18)
-          .fillColor('#111827')
-          .text(title, { align: 'center', lineGap: 4 });
-        
+        // Header Title
+        doc.fontSize(18).font('Helvetica-Bold').fillColor('#1E293B').text(title, { align: 'center' });
         doc.moveDown(0.5);
 
-        // Authors Block
-        doc
-          .font('Helvetica')
-          .fontSize(10)
-          .fillColor('#374151')
-          .text(authors, { align: 'center', lineGap: 3 });
-
-        doc.moveDown(1.2);
+        // Authors
+        doc.fontSize(9.5).font('Helvetica').fillColor('#475569').text(authors, { align: 'center' });
+        doc.moveDown(1);
 
         // Abstract Box
         if (abstract) {
-          doc
-            .font('Helvetica-Bold')
-            .fontSize(10)
-            .fillColor('#111827')
-            .text('Abstract—', { continued: true, indent: 20 })
-            .font('Helvetica-Oblique')
-            .fontSize(9.5)
-            .fillColor('#1F2937')
-            .text(abstract, { align: 'justify', lineGap: 2.5 });
-          
-          doc.moveDown(0.6);
+          doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#0F172A').text('Abstract—', { continued: true });
+          doc.font('Helvetica-Oblique').fillColor('#334155').text(abstract);
+          doc.moveDown(0.5);
         }
 
-        // Keywords
         if (keywords) {
-          doc
-            .font('Helvetica-Bold')
-            .fontSize(9.5)
-            .fillColor('#111827')
-            .text('Index Terms—', { continued: true, indent: 20 })
-            .font('Helvetica-Oblique')
-            .fontSize(9.5)
-            .fillColor('#374151')
-            .text(keywords, { align: 'left', lineGap: 2 });
-
+          doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#0F172A').text('Index Terms—', { continued: true });
+          doc.font('Helvetica').fillColor('#475569').text(keywords);
           doc.moveDown(1);
         }
 
-        // Divider
-        doc
-          .strokeColor('#E5E7EB')
-          .lineWidth(0.5)
-          .moveTo(54, doc.y)
-          .lineTo(558, doc.y)
-          .stroke();
-
+        doc.moveTo(54, doc.y).lineTo(541, doc.y).strokeColor('#CBD5E1').stroke();
         doc.moveDown(1);
 
-        // Sections
-        const romanNumerals = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
-        let secIdx = 0;
-
-        for (const sec of sections) {
-          const roman = romanNumerals[secIdx] || `${secIdx + 1}`;
-          
-          // Section Heading
-          doc
-            .font('Helvetica-Bold')
-            .fontSize(11)
-            .fillColor('#111827')
-            .text(`${roman}.  ${sec.title.toUpperCase()}`, { align: 'left', lineGap: 4 });
-          
-          doc.moveDown(0.3);
-
-          // Subsections & Paragraphs
-          for (const item of sec.items) {
-            if (item.type === 'subsection') {
-              doc
-                .font('Helvetica-Bold')
-                .fontSize(10)
-                .fillColor('#1F2937')
-                .text(`${item.prefix}. ${item.title}`, { align: 'left', lineGap: 3 });
-              doc.moveDown(0.2);
-            } else if (item.type === 'equation') {
-              doc.moveDown(0.4);
-              doc
-                .font('Helvetica-Oblique')
-                .fontSize(10)
-                .fillColor('#1E293B')
-                .text(item.content, { align: 'center', lineGap: 2 });
-              doc.moveDown(0.4);
-            } else if (item.type === 'paragraph') {
-              doc
-                .font('Helvetica')
-                .fontSize(9.5)
-                .fillColor('#374151')
-                .text(item.content, {
-                  align: 'justify',
-                  indent: 14,
-                  lineGap: 3,
-                });
-              doc.moveDown(0.5);
-            }
-          }
-
-          doc.moveDown(0.6);
-          secIdx++;
-        }
-
-        // References Block
-        if (bibItems.length > 0) {
-          doc
-            .font('Helvetica-Bold')
-            .fontSize(11)
-            .fillColor('#111827')
-            .text('REFERENCES', { align: 'center', lineGap: 6 });
-          
+        // Render Sections
+        for (let sIdx = 0; sIdx < sections.length; sIdx++) {
+          const sec = sections[sIdx];
+          doc.fontSize(11).font('Helvetica-Bold').fillColor('#1E293B').text(`${sIdx + 1}. ${sec.title.toUpperCase()}`);
           doc.moveDown(0.4);
 
-          let bIdx = 1;
-          for (const bib of bibItems) {
-            doc
-              .font('Helvetica')
-              .fontSize(8.5)
-              .fillColor('#4B5563')
-              .text(`[${bIdx}] `, { continued: true })
-              .text(bib, { align: 'justify', lineGap: 2 });
+          for (const item of sec.items) {
+            if (item.type === 'paragraph') {
+              doc.fontSize(9.5).font('Helvetica').fillColor('#334155').text(item.content, { lineGap: 3, align: 'justify' });
+              doc.moveDown(0.5);
+            } else if (item.type === 'equation') {
+              doc.moveDown(0.2);
+              doc.fontSize(10).font('Courier-Oblique').fillColor('#0F172A').text(`    ${item.content}`, { align: 'center' });
+              doc.moveDown(0.4);
+            } else if (item.type === 'subsection') {
+              doc.fontSize(10).font('Helvetica-Bold').fillColor('#334155').text(`${item.prefix}. ${item.title}`);
+              doc.moveDown(0.3);
+            }
+          }
+          doc.moveDown(0.5);
+        }
+
+        // Render Bibliography
+        if (references.length > 0) {
+          doc.moveDown(0.5);
+          doc.fontSize(11).font('Helvetica-Bold').fillColor('#1E293B').text('REFERENCES');
+          doc.moveDown(0.4);
+
+          for (let rIdx = 0; rIdx < references.length; rIdx++) {
+            doc.fontSize(8.5).font('Helvetica').fillColor('#475569').text(`[${rIdx + 1}]  ${references[rIdx]}`, { lineGap: 2 });
             doc.moveDown(0.3);
-            bIdx++;
           }
         }
 
-        // Add Header & Footers (Page numbering "Page X of Y")
+        // Add page numbers
         const range = doc.bufferedPageRange();
         for (let i = range.start; i < range.start + range.count; i++) {
           doc.switchToPage(i);
-
-          // Header
           doc
-            .font('Helvetica')
-            .fontSize(8)
-            .fillColor('#9CA3AF')
-            .text('GitLeaf Academic Typesetting Engine', 54, 30, { align: 'left' });
-
-          // Footer
-          doc
-            .font('Helvetica')
             .fontSize(8)
             .fillColor('#9CA3AF')
             .text(`Page ${i + 1} of ${range.count}`, 54, 750, { align: 'center' });
@@ -321,7 +236,7 @@ export class LatexCompiler {
         writeStream.on('finish', () => {
           resolve({
             success: true,
-            pdfUrl: `/api/projects/${path.basename(projectRoot)}/pdf?t=${Date.now()}`,
+            pdfUrl: `/api/projects/${projectId || path.basename(projectRoot)}/pdf?t=${Date.now()}`,
             pdfPath,
             diagnostics: [
               {

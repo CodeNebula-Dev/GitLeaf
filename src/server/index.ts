@@ -180,7 +180,8 @@ app.post('/api/projects/:id/compile', async (req, res) => {
   const result = await latexCompiler.compile(
     project.rootPath,
     mainFile || project.mainFile || 'main.tex',
-    engine || project.engine
+    engine || project.engine,
+    project.id
   );
 
   // 2. Auto-record checkpoint snapshot locally

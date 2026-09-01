@@ -329,7 +329,12 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
     if (model) {
       // Set initial model text from loaded content
-      model.setValue(content || '');
+      if (content) {
+        model.setValue(content);
+        if (yText.length === 0) {
+          yText.insert(0, content);
+        }
+      }
 
       const binding = new MonacoBinding(
         yText,
@@ -372,6 +377,24 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
       }
     };
   }, [projectId, filePath, user?.name, user?.color]);
+
+  // When content arrives from server after initial mount, seed yText and model if empty
+  useEffect(() => {
+    if (ydocRef.current && content) {
+      const yText = ydocRef.current.getText('monaco');
+      if (yText.length === 0) {
+        ydocRef.current.transact(() => {
+          yText.insert(0, content);
+        });
+        if (editorRef.current) {
+          const model = editorRef.current.getModel();
+          if (model && !model.getValue()) {
+            model.setValue(content);
+          }
+        }
+      }
+    }
+  }, [content]);
 
   // Jump to Line when targetJumpLine is set
   useEffect(() => {
