@@ -45,13 +45,13 @@ export class ProjectManager {
     return projects.sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
-  public createProject(name: string, templateId: string = 'ieee-conference'): ProjectMetadata {
+  public createProject(name: string, templateId: string = 'blank'): ProjectMetadata {
     const slug = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
     const folderName = `${slug}-${nanoid(5)}`;
     const projPath = path.join(this.baseDir, folderName);
     fs.mkdirSync(projPath, { recursive: true });
 
-    const template = TEMPLATES[templateId] || TEMPLATES['article-simple'];
+    const template = TEMPLATES[templateId] || TEMPLATES['blank'];
     for (const [relPath, content] of Object.entries(template.files)) {
       const fullPath = path.join(projPath, relPath);
       const dir = path.dirname(fullPath);

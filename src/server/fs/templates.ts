@@ -1,4 +1,28 @@
 export const TEMPLATES: Record<string, { mainFile: string; files: Record<string, string> }> = {
+  'blank': {
+    mainFile: 'main.tex',
+    files: {
+      'main.tex': `\\documentclass{article}
+\\usepackage[utf8]{inputenc}
+\\usepackage{amsmath,amssymb}
+\\usepackage{graphicx}
+\\usepackage{hyperref}
+
+\\title{Your Paper Title}
+\\author{Your Name}
+\\date{\\today}
+
+\\begin{document}
+
+\\maketitle
+
+\\section{Introduction}
+Start typing your paper here...
+
+\\end{document}
+`,
+    },
+  },
   'article-simple': {
     mainFile: 'main.tex',
     files: {
@@ -45,6 +69,7 @@ Summarize your results and future work.
 \\usepackage{amsmath,amssymb,amsfonts}
 \\usepackage{graphicx}
 \\usepackage{xcolor}
+\\usepackage{hyperref}
 
 \\begin{document}
 
@@ -86,6 +111,9 @@ Summarize your findings.
     mainFile: 'main.tex',
     files: {
       'main.tex': `\\documentclass[sigconf]{acmart}
+\\usepackage{amsmath,amssymb}
+\\usepackage{graphicx}
+\\usepackage{hyperref}
 
 \\begin{document}
 
@@ -105,27 +133,6 @@ Start writing your paper here.
 
 \\section{Conclusion}
 Summarize your conclusions.
-
-\\end{document}
-`,
-    },
-  },
-  'blank': {
-    mainFile: 'main.tex',
-    files: {
-      'main.tex': `\\documentclass{article}
-\\usepackage[utf8]{inputenc}
-
-\\title{Your Paper Title}
-\\author{Your Name}
-\\date{\\today}
-
-\\begin{document}
-
-\\maketitle
-
-\\section{Introduction}
-Start typing here...
 
 \\end{document}
 `,
