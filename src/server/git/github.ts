@@ -50,92 +50,71 @@ interface SafeFetchResponse {
 }
 
 /**
- * Cross-platform resilient HTTP/HTTPS requester that handles Windows IPv6/DNS edge cases.
+ * Direct resilient IPv4 HTTPS requester that eliminates Windows Node IPv6 undici hangs.
  */
 async function safeFetch(url: string, options: any = {}): Promise<SafeFetchResponse> {
-  try {
-    const res = await fetch(url, options);
-    return {
-      ok: res.ok,
-      status: res.status,
-      statusText: res.statusText,
-      headers: {
-        get: (name: string) => res.headers.get(name),
-      },
-      json: async () => {
-        if (res.status === 204) return {};
-        try {
-          return await res.json();
-        } catch {
-          return {};
-        }
-      },
-    };
-  } catch (fetchErr: any) {
-    // Fallback to native Node.js HTTPS request with forced IPv4 on Windows
-    return new Promise((resolve, reject) => {
-      try {
-        const parsedUrl = new URL(url);
-        const reqHeaders: Record<string, string> = {
-          'User-Agent': 'GitLeaf/1.0',
-          Accept: 'application/vnd.github+json',
-          ...(options.headers || {}),
-        };
+  return new Promise((resolve, reject) => {
+    try {
+      const parsedUrl = new URL(url);
+      const reqHeaders: Record<string, string> = {
+        'User-Agent': 'GitLeaf/1.0',
+        Accept: 'application/vnd.github+json',
+        ...(options.headers || {}),
+      };
 
-        const reqOptions: https.RequestOptions = {
-          hostname: parsedUrl.hostname,
-          port: 443,
-          path: `${parsedUrl.pathname}${parsedUrl.search}`,
-          method: options.method || 'GET',
-          headers: reqHeaders,
-          family: 4, // Force IPv4 to bypass Windows IPv6 routing issues
-          timeout: 12000,
-        };
+      const reqOptions: https.RequestOptions = {
+        hostname: parsedUrl.hostname,
+        port: 443,
+        path: `${parsedUrl.pathname}${parsedUrl.search}`,
+        method: options.method || 'GET',
+        headers: reqHeaders,
+        family: 4, // Directly force pure IPv4 to bypass Windows IPv6 routing issues
+        timeout: 10000,
+      };
 
-        const req = https.request(reqOptions, (res) => {
-          let rawData = '';
-          res.on('data', (chunk) => {
-            rawData += chunk;
-          });
-          res.on('end', () => {
-            const status = res.statusCode || 500;
-            resolve({
-              ok: status >= 200 && status < 300,
-              status,
-              statusText: res.statusMessage || '',
-              headers: {
-                get: (name: string) => (res.headers[name.toLowerCase()] as string) || null,
-              },
-              json: async () => {
-                if (!rawData.trim() || status === 204) return {};
-                try {
-                  return JSON.parse(rawData);
-                } catch {
-                  return {};
-                }
-              },
-            });
+      const req = https.request(reqOptions, (res) => {
+        let rawData = '';
+        res.on('data', (chunk) => {
+          rawData += chunk;
+        });
+        res.on('end', () => {
+          const status = res.statusCode || 500;
+          resolve({
+            ok: status >= 200 && status < 300,
+            status,
+            statusText: res.statusMessage || '',
+            headers: {
+              get: (name: string) => (res.headers[name.toLowerCase()] as string) || null,
+            },
+            json: async () => {
+              if (!rawData.trim() || status === 204) return {};
+              try {
+                return JSON.parse(rawData);
+              } catch {
+                return {};
+              }
+            },
           });
         });
+      });
 
-        req.on('error', (e: any) => {
-          reject(new Error(`Network request failed: ${e.message || 'Connection refused'}`));
-        });
+      req.on('error', (e: any) => {
+        reject(new Error(`Network request failed: ${e.message || 'Connection refused'}`));
+      });
 
-        req.on('timeout', () => {
-          req.destroy();
-          reject(new Error('GitHub API connection timed out'));
-        });
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('GitHub API connection timed out'));
+      });
 
-        if (options.body) {
-          req.write(typeof options.body === 'string' ? options.body : JSON.stringify(options.body));
-        }
-        req.end();
-      } catch (err: any) {
-        reject(err);
+      if (options.body) {
+        req.write(typeof options.body === 'string' ? options.body : JSON.stringify(options.body));
       }
-    });
-  }
+      req.end();
+    } catch (err: any) {
+      reject(err);
+    }
+  });
 }
 
 export class GitHubService {
