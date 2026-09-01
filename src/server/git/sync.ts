@@ -101,10 +101,15 @@ Thumbs.db
         const data = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
         token = data.token;
       }
-      if (token && remoteUrl.includes('github.com') && !remoteUrl.includes('@')) {
+      
+      // Strip any existing embedded tokens or credentials from URL
+      const cleanRemote = remoteUrl.replace(/https:\/\/[^@]+@github\.com/, 'https://github.com');
+
+      if (token && cleanRemote.includes('github.com')) {
         const cleanToken = token.trim().replace(/^['"]|['"]$/g, '');
-        return remoteUrl.replace('https://', `https://x-access-token:${cleanToken}@`);
+        return cleanRemote.replace('https://', `https://x-access-token:${cleanToken}@`);
       }
+      return cleanRemote;
     } catch {}
     return remoteUrl;
   }
@@ -182,12 +187,12 @@ Thumbs.db
   }
 
   /**
-   * Push to remote origin. Returns true on success.
+   * Push to remote origin. Returns success status and detailed error if failed.
    */
-  public static push(projectRoot: string): boolean {
-    if (!this.isGitRepo(projectRoot)) return false;
+  public static push(projectRoot: string): { success: boolean; error?: string } {
+    if (!this.isGitRepo(projectRoot)) return { success: false, error: 'Not a Git repository' };
     const remote = this.getRemote(projectRoot);
-    if (!remote) return false;
+    if (!remote) return { success: false, error: 'No Git remote configured' };
     try {
       const authUrl = this.getAuthenticatedUrl(remote);
       execSync(`git remote set-url origin "${authUrl}"`, { cwd: projectRoot, stdio: 'pipe', env: this.GIT_ENV });
@@ -204,10 +209,11 @@ Thumbs.db
         cwd: projectRoot, stdio: 'pipe', env: this.GIT_ENV,
         timeout: 30000,
       });
-      return true;
+      return { success: true };
     } catch (err: any) {
-      console.error('Failed to push:', err.message);
-      return false;
+      const errMsg = err.stderr ? err.stderr.toString().trim() : err.message;
+      console.error('Failed to push:', errMsg);
+      return { success: false, error: errMsg };
     }
   }
 
@@ -272,7 +278,7 @@ Thumbs.db
     if (!this.getRemote(projectRoot)) return false;
     const committed = this.commit(projectRoot, message);
     if (committed) {
-      return this.push(projectRoot);
+      return this.push(projectRoot).success;
     }
     return false;
   }

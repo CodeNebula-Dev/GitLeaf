@@ -444,25 +444,6 @@ app.post('/api/projects/:id/git/link-remote', (req, res) => {
   });
 });
 
-app.post('/api/projects/:id/git/push', (req, res) => {
-  const project = projectManager.getProject(req.params.id);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
-
-  const message = req.body.message || 'GitLeaf save';
-  GitSync.commit(project.rootPath, message);
-  const pushed = GitSync.push(project.rootPath);
-
-  res.json({ success: pushed, message: pushed ? 'Changes pushed to remote.' : 'Push failed — check Git credentials.' });
-});
-
-app.post('/api/projects/:id/git/pull', (req, res) => {
-  const project = projectManager.getProject(req.params.id);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
-
-  const pulled = GitSync.pull(project.rootPath);
-  res.json({ success: pulled, message: pulled ? 'Latest changes pulled.' : 'Pull failed or no remote configured.' });
-});
-
 const githubService = new GitHubService();
 
 // 8. GitHub API Automation Endpoints
@@ -617,13 +598,13 @@ app.post('/api/projects/:id/git/push', (req, res) => {
 
   // Stage and commit any pending changes
   GitSync.commit(project.rootPath, commitMsg);
-  const pushed = GitSync.push(project.rootPath);
+  const pushRes = GitSync.push(project.rootPath);
   const lastCommit = GitSync.getLastCommit(project.rootPath);
 
-  if (pushed) {
+  if (pushRes.success) {
     res.json({ success: true, message: 'Successfully pushed all changes to GitHub!', lastCommit });
   } else {
-    res.status(500).json({ error: 'Failed to push to GitHub. Please check your network or repository access.' });
+    res.status(500).json({ success: false, error: pushRes.error || 'Failed to push to GitHub. Please verify repository access permissions.' });
   }
 });
 
