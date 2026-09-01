@@ -1,5 +1,6 @@
 import { execSync } from 'child_process';
 import fs from 'fs';
+import path from 'path';
 
 export interface SystemTeXStatus {
   hasPdflatex: boolean;
@@ -14,9 +15,13 @@ export interface SystemTeXStatus {
 
 export function detectSystemTeX(): SystemTeXStatus {
   const isWindows = process.platform === 'win32';
+  const binName = isWindows ? (bin: string) => `${bin}.exe` : (bin: string) => bin;
   const checkBinary = (bin: string): { found: boolean; path?: string } => {
-    // Check custom standard paths first on macOS and Windows
+    // Check local bin directory first, then custom standard paths on macOS and Windows
     const candidatePaths = [
+      path.resolve(process.cwd(), 'bin', binName(bin)),
+      path.resolve(__dirname, '../../bin', binName(bin)),
+      path.resolve(__dirname, '../../../bin', binName(bin)),
       `/opt/homebrew/bin/${bin}`,
       `/usr/local/bin/${bin}`,
       `/Library/TeX/texbin/${bin}`,

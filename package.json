@@ -12,7 +12,8 @@
     "dev:server": "tsx watch src/server/index.ts",
     "build": "tsc && vite build",
     "cli": "tsx src/cli/index.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "node scripts/install-tectonic.js"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
