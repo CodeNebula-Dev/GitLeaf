@@ -60,12 +60,16 @@ export class LatexCompiler {
       }
 
       const isWindows = process.platform === 'win32';
+      const envPath = isWindows
+        ? (process.env.Path || process.env.PATH || '')
+        : `/opt/homebrew/bin:/usr/local/bin:/Library/TeX/texbin:${process.env.PATH || ''}`;
+
       const child = spawn(cmd, args, {
         cwd: projectRoot,
-        shell: isWindows,
+        shell: false,
         env: {
           ...process.env,
-          PATH: `/opt/homebrew/bin:/usr/local/bin:/Library/TeX/texbin:${process.env.PATH || ''}`,
+          ...(isWindows ? { Path: envPath, PATH: envPath } : { PATH: envPath }),
         },
       });
 
@@ -89,6 +93,20 @@ export class LatexCompiler {
 
         const diagnostics = parseLatexLog(fullLog, mainFile);
         const success = (code === 0);
+
+        // If compilation failed and no diagnostics parsed, extract meaningful error message
+        if (!success && diagnostics.length === 0) {
+          const errLine = fullLog.split('\n').filter(l => l.includes('error:') || l.includes('Error:') || l.startsWith('! ')).pop()
+            || fullLog.trim().split('\n').filter(Boolean).pop()
+            || 'LaTeX compilation failed.';
+          diagnostics.push({
+            type: 'error',
+            file: mainFile,
+            line: 1,
+            message: errLine.replace(/^error:\s*/i, '').trim(),
+            raw: fullLog,
+          });
+        }
 
         resolve({
           success,
