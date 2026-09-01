@@ -88,9 +88,27 @@ export class YjsSyncRelay {
         }
       });
 
-      // 4. Handle connection close
+      // 4. Handle connection close — clean up empty rooms
       conn.on('close', () => {
         room.conns.delete(conn);
+
+        // If no more connections in this room, destroy it so next connect starts fresh from disk
+        if (room.conns.size === 0) {
+          // Save final state to disk before destroying
+          if (room.saveTimeout) clearTimeout(room.saveTimeout);
+          try {
+            const currentProj = this.projectManager.getProject(room.projectId);
+            if (currentProj) {
+              const textContent = room.doc.getText('monaco').toString();
+              if (textContent) {
+                this.projectManager.writeFile(currentProj.rootPath, room.filePath, textContent);
+              }
+            }
+          } catch {}
+
+          room.doc.destroy();
+          this.rooms.delete(`${room.projectId}:${room.filePath}`);
+        }
       });
     });
   }

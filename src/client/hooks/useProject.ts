@@ -5,7 +5,7 @@ export function useProject() {
   const [projects, setProjects] = useState<ProjectMetadata[]>([]);
   const [currentProject, setCurrentProject] = useState<ProjectMetadata | null>(null);
   const [files, setFiles] = useState<ProjectFile[]>([]);
-  const [activeFilePath, setActiveFilePath] = useState<string>('main.tex');
+  const [activeFilePath, setActiveFilePathRaw] = useState<string>('main.tex');
   const [activeFileContent, setActiveFileContent] = useState<string>('');
   const [compilationResult, setCompilationResult] = useState<CompilationResult | null>(null);
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
@@ -19,6 +19,18 @@ export function useProject() {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fileLoadedRef = useRef<boolean>(false);
   const currentPathRef = useRef<string>('main.tex');
+  const fileSwitchingRef = useRef<boolean>(false);
+
+  // Wrapped setActiveFilePath: clears content immediately on file switch
+  // to prevent stale content from seeding a new Yjs room
+  const setActiveFilePath = useCallback((newPath: string) => {
+    if (newPath !== currentPathRef.current) {
+      fileSwitchingRef.current = true;
+      fileLoadedRef.current = false;
+      setActiveFileContent(''); // Clear immediately — prevents old content leaking
+    }
+    setActiveFilePathRaw(newPath);
+  }, []);
 
   // 1. Fetch Projects
   const fetchProjects = useCallback(async () => {
@@ -102,6 +114,7 @@ export function useProject() {
         if (currentPathRef.current === path) {
           setActiveFileContent(data.content || '');
           fileLoadedRef.current = true;
+          fileSwitchingRef.current = false;
         }
       }
     } catch (err) {

@@ -55,6 +55,8 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
   const providerRef = useRef<WebsocketProvider | null>(null);
   const globalProviderRef = useRef<WebsocketProvider | null>(null);
   const ydocRef = useRef<Y.Doc | null>(null);
+  const prevFilePathRef = useRef<string>(filePath);
+  const contentSyncTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -357,12 +359,11 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     }
 
     const yText = ydoc.getText('monaco');
-    const initialText = content || '';
 
-    // Seed content if yText is empty
-    if (initialText && yText.length === 0) {
-      yText.insert(0, initialText);
-    }
+    // NOTE: Do NOT seed content from `content` prop here.
+    // The `content` prop may be stale (from the previous file) during file switches.
+    // Content seeding is handled by the content-sync effect below, which fires 
+    // once the correct content arrives from the server.
 
     const model = editorRef.current.getModel();
 
@@ -389,8 +390,6 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
         const text = yText.toString();
         if (text) {
           onChange(text);
-        } else if (initialText) {
-          yText.insert(0, initialText);
         }
       }
     });
@@ -415,18 +414,37 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     };
   }, [projectId, filePath, user?.name, user?.color]);
 
-  // Keep editor in sync when content updates externally (from background git pull / sync-check)
+  // Keep editor in sync when content updates externally (from server fetch / git pull)
+  // This effect is guarded to prevent seeding stale content during file switches.
   useEffect(() => {
-    if (ydocRef.current && content !== undefined) {
+    // Skip if no Yjs doc is active
+    if (!ydocRef.current) return;
+    // Skip if content is empty (file is still loading during a switch)
+    if (!content) return;
+
+    // Debounce to avoid rapid overwrites during file transitions
+    if (contentSyncTimerRef.current) {
+      clearTimeout(contentSyncTimerRef.current);
+    }
+
+    contentSyncTimerRef.current = setTimeout(() => {
+      if (!ydocRef.current) return;
       const yText = ydocRef.current.getText('monaco');
       const currentVal = yText.toString();
+      // Only update if the content actually differs (prevents feedback loops)
       if (content && content !== currentVal) {
         ydocRef.current.transact(() => {
           yText.delete(0, yText.length);
           yText.insert(0, content);
         });
       }
-    }
+    }, 50); // Small delay to let file switching settle
+
+    return () => {
+      if (contentSyncTimerRef.current) {
+        clearTimeout(contentSyncTimerRef.current);
+      }
+    };
   }, [content]);
 
   // Jump to Line when targetJumpLine is set
