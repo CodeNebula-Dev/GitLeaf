@@ -142,26 +142,37 @@ export function useProject() {
     [currentProject?.id]
   );
 
-  // 4. Periodic background Git sync check (every 4 seconds)
+  // 4. Periodic background Git sync check (every 5 seconds, delayed after startup)
   useEffect(() => {
-    if (!currentProject) return;
+    if (!currentProject?.id) return;
 
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/projects/${currentProject.id}/git/sync-check`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.updated) {
-            fetchFiles();
-            if (currentPathRef.current) {
-              fetchFileContent(currentProject.id, currentPathRef.current);
+    let isMounted = true;
+    const initialTimer = setTimeout(() => {
+      if (!isMounted) return;
+
+      const interval = setInterval(async () => {
+        if (!isMounted) return;
+        try {
+          const res = await fetch(`/api/projects/${currentProject.id}/git/sync-check`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.updated) {
+              fetchFiles();
+              if (currentPathRef.current) {
+                fetchFileContent(currentProject.id, currentPathRef.current);
+              }
             }
           }
-        }
-      } catch {}
-    }, 4000);
+        } catch {}
+      }, 5000);
 
-    return () => clearInterval(interval);
+      return () => clearInterval(interval);
+    }, 2500);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(initialTimer);
+    };
   }, [currentProject?.id, fetchFiles, fetchFileContent]);
 
   const handleContentChange = useCallback(
