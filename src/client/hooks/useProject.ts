@@ -192,12 +192,14 @@ export function useProject() {
     if (!currentProject) return;
     setIsCompiling(true);
 
-    const targetFile = currentProject.mainFile || 'main.tex';
+    const defaultMain = currentProject.mainFile || 'main.tex';
+    // If the user is actively editing a .tex file, compile that file; otherwise compile main
+    const targetFile = activeFilePath.endsWith('.tex') ? activeFilePath : defaultMain;
 
     // Flush any pending save timeout
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     if (activeFilePath && activeFileContent) {
-      saveContent(activeFilePath, activeFileContent);
+      await saveContent(activeFilePath, activeFileContent);
     }
 
     try {

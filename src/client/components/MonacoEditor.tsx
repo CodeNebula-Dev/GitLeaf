@@ -497,8 +497,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
         <Editor
           height="100%"
           language={getLanguage(filePath)}
-          value={content}
-          onChange={(val) => onChange(val || '')}
+          defaultValue={content}
           onMount={handleEditorDidMount}
           theme="gitleaf-dark"
           options={{
