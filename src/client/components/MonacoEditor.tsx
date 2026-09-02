@@ -45,6 +45,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
 }) => {
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
+  const [isEditorReady, setIsEditorReady] = useState<boolean>(false);
   const [syncStatus, setSyncStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connecting');
   const [activePeers, setActivePeers] = useState<PeerUser[]>([]);
 
@@ -57,6 +58,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    setIsEditorReady(true);
 
     // Register LaTeX language if not already defined
     if (!monaco.languages.getLanguages().some((l: any) => l.id === 'latex')) {
@@ -269,7 +271,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
   // Real-Time Yjs WebSocket Collaboration Setup (Dedicated Local GitLeaf Server)
   useEffect(() => {
-    if (!editorRef.current || !projectId || !filePath) return;
+    if (!editorRef.current || !projectId || !filePath || !isEditorReady) return;
 
     // Clean up previous instance
     if (bindingRef.current) {
@@ -335,11 +337,10 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
     if (model) {
       // Set initial model text from loaded content
-      if (content) {
-        model.setValue(content);
-        if (yText.length === 0) {
+      if (content && yText.length === 0) {
+        ydoc.transact(() => {
           yText.insert(0, content);
-        }
+        });
       }
 
       const binding = new MonacoBinding(
@@ -363,7 +364,11 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
         if (text) {
           onChangeRef.current(text);
         } else if (content) {
-          yText.insert(0, content);
+          ydoc.transact(() => {
+            if (yText.length === 0) {
+              yText.insert(0, content);
+            }
+          });
         }
       }
     });
@@ -382,22 +387,22 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
         ydocRef.current = null;
       }
     };
-  }, [projectId, filePath, user?.name, user?.color]);
+  }, [projectId, filePath, isEditorReady, user?.name, user?.color]);
 
   // When content arrives from server after initial mount, seed yText and model if empty
   useEffect(() => {
-    if (ydocRef.current && content) {
+    if (!content) return;
+    if (ydocRef.current) {
       const yText = ydocRef.current.getText('monaco');
       if (yText.length === 0) {
         ydocRef.current.transact(() => {
           yText.insert(0, content);
         });
-        if (editorRef.current) {
-          const model = editorRef.current.getModel();
-          if (model && !model.getValue()) {
-            model.setValue(content);
-          }
-        }
+      }
+    } else if (editorRef.current) {
+      const model = editorRef.current.getModel();
+      if (model && !model.getValue()) {
+        model.setValue(content);
       }
     }
   }, [content]);

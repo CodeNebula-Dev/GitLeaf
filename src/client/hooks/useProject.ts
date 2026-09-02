@@ -273,9 +273,12 @@ export function useProject() {
       if (res.ok) {
         const newProj = await res.json();
         await fetchProjects();
+        setActiveFileContent('');
         setCurrentProject(newProj);
-        setActiveFilePath('main.tex');
+        const main = newProj.mainFile || 'main.tex';
+        setActiveFilePath(main);
         setCompilationResult(null);
+        await fetchFileContent(newProj.id, main);
       }
     } catch (err) {
       console.error('Error creating project:', err);
