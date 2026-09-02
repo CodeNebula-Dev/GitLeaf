@@ -336,13 +336,6 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     const model = editorRef.current.getModel();
 
     if (model) {
-      // Set initial model text from loaded content
-      if (content && yText.length === 0) {
-        ydoc.transact(() => {
-          yText.insert(0, content);
-        });
-      }
-
       const binding = new MonacoBinding(
         yText,
         model,
@@ -358,12 +351,14 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
       });
     }
 
+    let hasSynced = false;
     provider.on('sync', (isSynced: boolean) => {
-      if (isSynced) {
+      if (isSynced && !hasSynced) {
+        hasSynced = true;
         const text = yText.toString();
-        if (text) {
+        if (text.trim().length > 0) {
           onChangeRef.current(text);
-        } else if (content) {
+        } else if (content && content.trim().length > 0) {
           ydoc.transact(() => {
             if (yText.length === 0) {
               yText.insert(0, content);
@@ -388,24 +383,6 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
       }
     };
   }, [projectId, filePath, isEditorReady, user?.name, user?.color]);
-
-  // When content arrives from server after initial mount, seed yText and model if empty
-  useEffect(() => {
-    if (!content) return;
-    if (ydocRef.current) {
-      const yText = ydocRef.current.getText('monaco');
-      if (yText.length === 0) {
-        ydocRef.current.transact(() => {
-          yText.insert(0, content);
-        });
-      }
-    } else if (editorRef.current) {
-      const model = editorRef.current.getModel();
-      if (model && !model.getValue()) {
-        model.setValue(content);
-      }
-    }
-  }, [content]);
 
   // Jump to Line when targetJumpLine is set
   useEffect(() => {
