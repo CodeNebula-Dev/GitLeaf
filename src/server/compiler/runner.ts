@@ -10,7 +10,6 @@ export class LatexCompiler {
   public async compile(projectRoot: string, mainFile: string = 'main.tex', engine?: string, projectId?: string): Promise<CompilationResult> {
     const startTime = Date.now();
     const systemStatus = detectSystemTeX();
-    const selectedEngine = engine || systemStatus.preferredEngine;
 
     const fullMainPath = path.join(projectRoot, mainFile);
     if (!fs.existsSync(fullMainPath)) {
@@ -30,13 +29,22 @@ export class LatexCompiler {
       };
     }
 
-    // 1. Try Native TeX Compiler (Tectonic / pdflatex / xelatex)
-    if (selectedEngine !== 'wasm' && (systemStatus.hasTectonic || systemStatus.hasPdflatex || systemStatus.hasXelatex)) {
+    // Determine which native engine to actually use, based on what's installed on this machine
+    const hasAnyNative = systemStatus.hasTectonic || systemStatus.hasPdflatex || systemStatus.hasXelatex;
+
+    if (hasAnyNative) {
+      // Try native compilation first; if spawn fails, fall back to PDFKit
       const nativeRes = await this.runNativeCompiler(projectRoot, mainFile, systemStatus, startTime, projectId);
-      return nativeRes;
+
+      // If spawn itself failed (binary not found / ENOENT), fall back to PDFKit
+      const spawnFailed = !nativeRes.success && nativeRes.log?.includes('Spawn error:');
+      if (!spawnFailed) {
+        return nativeRes;
+      }
+      console.warn('[Compiler] Native TeX spawn failed, falling back to PDFKit engine:', nativeRes.log);
     }
 
-    // 2. High-Fidelity Multi-Page PDFKit Academic Engine Fallback (When no native TeX compiler is installed)
+    // Fallback: High-Fidelity Multi-Page PDFKit Academic Engine (when no native TeX compiler works)
     return await this.runAcademicPdfEngine(projectRoot, mainFile, startTime, projectId);
   }
 
@@ -48,15 +56,28 @@ export class LatexCompiler {
     projectId?: string
   ): Promise<CompilationResult> {
     return new Promise((resolve) => {
-      let cmd = 'tectonic';
-      let args: string[] = ['-r', '2', '--synctex', '--keep-logs', '--print', mainFile];
+      let cmd: string;
+      let args: string[];
 
+      // Pick engine based on what is actually installed on this system
       if (systemStatus.hasTectonic && systemStatus.tectonicPath) {
         cmd = systemStatus.tectonicPath;
         args = ['-r', '2', '--synctex', '--keep-logs', '--print', mainFile];
       } else if (systemStatus.hasPdflatex) {
         cmd = systemStatus.pdflatexPath || 'pdflatex';
         args = ['-synctex=1', '-interaction=nonstopmode', '-file-line-error', mainFile];
+      } else if (systemStatus.hasXelatex) {
+        cmd = 'xelatex';
+        args = ['-synctex=1', '-interaction=nonstopmode', '-file-line-error', mainFile];
+      } else {
+        // Should not reach here since caller checks hasAnyNative, but guard anyway
+        return resolve({
+          success: false,
+          diagnostics: [{ type: 'error', file: mainFile, line: 1, message: 'No TeX compiler found on this system.' }],
+          log: 'Spawn error: No TeX compiler binary found.',
+          durationMs: Date.now() - startTime,
+          timestamp: Date.now(),
+        });
       }
 
       const isWindows = process.platform === 'win32';
@@ -64,9 +85,11 @@ export class LatexCompiler {
         ? (process.env.Path || process.env.PATH || '')
         : `/opt/homebrew/bin:/usr/local/bin:/Library/TeX/texbin:${process.env.PATH || ''}`;
 
+      console.log(`[Compiler] Running: ${cmd} ${args.join(' ')} in ${projectRoot}`);
+
       const child = spawn(cmd, args, {
         cwd: projectRoot,
-        shell: false,
+        shell: isWindows,  // Use shell on Windows to resolve .exe / .cmd wrappers
         env: {
           ...process.env,
           ...(isWindows ? { Path: envPath, PATH: envPath } : { PATH: envPath }),
@@ -75,6 +98,7 @@ export class LatexCompiler {
 
       let stdout = '';
       let stderr = '';
+      let resolved = false;
 
       child.stdout.on('data', (data) => {
         stdout += data.toString();
@@ -85,6 +109,9 @@ export class LatexCompiler {
       });
 
       child.on('close', (code) => {
+        if (resolved) return;
+        resolved = true;
+
         const fullLog = `${stdout}\n${stderr}`;
         const baseName = mainFile.replace(/\.tex$/i, '');
         const pdfFileName = `${baseName}.pdf`;
@@ -121,6 +148,9 @@ export class LatexCompiler {
       });
 
       child.on('error', (err) => {
+        if (resolved) return;
+        resolved = true;
+
         resolve({
           success: false,
           diagnostics: [

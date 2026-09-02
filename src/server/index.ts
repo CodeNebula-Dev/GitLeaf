@@ -645,6 +645,9 @@ server.listen(PORT, '0.0.0.0', () => {
     collaborators: 1,
   });
 
+  // Log resolved compiler details for debugging
+  console.log(`[Compiler] Engine: ${texInfo.preferredEngine} | Tectonic: ${texInfo.hasTectonic ? texInfo.tectonicPath : 'not found'} | pdflatex: ${texInfo.hasPdflatex ? texInfo.pdflatexPath : 'not found'} | Platform: ${process.platform}`);
+
   // Auto-pull all Git-linked projects asynchronously in the background (non-blocking)
   if (GitSync.hasGit()) {
     setTimeout(() => {
