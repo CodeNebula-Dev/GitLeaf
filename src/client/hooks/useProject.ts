@@ -213,15 +213,21 @@ export function useProject() {
         }),
       });
       if (res.ok) {
-        const data: CompilationResult = await res.json();
+        const data = await res.json();
         setCompilationResult(data);
+        if (data.hadIncomingChanges) {
+          await fetchFiles();
+          if (currentPathRef.current) {
+            await fetchFileContent(currentProject.id, currentPathRef.current);
+          }
+        }
       }
     } catch (err) {
       console.error('Error compiling:', err);
     } finally {
       setIsCompiling(false);
     }
-  }, [currentProject, activeFilePath, activeFileContent, saveContent]);
+  }, [currentProject, activeFilePath, activeFileContent, saveContent, fetchFiles, fetchFileContent]);
 
   // 6. Create File or Folder
   const createFile = async (relPath: string, type: 'file' | 'directory' = 'file') => {

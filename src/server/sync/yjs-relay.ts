@@ -205,4 +205,39 @@ export class YjsSyncRelay {
 
     return this.rooms.get(roomKey)!;
   }
+
+  /**
+   * Reload a file from disk into the active Y.Doc room and broadcast the change
+   * to all connected browser clients. Used when Git pull updates files on disk.
+   */
+  public reloadFileFromDisk(projectId: string, filePath?: string): void {
+    const project = this.projectManager.getProject(projectId);
+    if (!project) return;
+
+    for (const [roomKey, room] of this.rooms.entries()) {
+      if (room.projectId === projectId && (!filePath || room.filePath === filePath)) {
+        try {
+          const diskContent = this.projectManager.readFile(project.rootPath, room.filePath);
+          const yText = room.doc.getText('monaco');
+          const currentText = yText.toString();
+
+          if (diskContent !== currentText) {
+            // Cancel any pending debounced save that would overwrite disk with old text
+            if (room.saveTimeout) {
+              clearTimeout(room.saveTimeout);
+              room.saveTimeout = null;
+            }
+
+            // Update Y.Doc. This triggers 'doc.on(update)' and pushes changes to all browser clients immediately
+            room.doc.transact(() => {
+              yText.delete(0, yText.length);
+              yText.insert(0, diskContent);
+            });
+          }
+        } catch (err: any) {
+          console.warn(`[YjsSyncRelay] Could not reload ${room.filePath} from disk:`, err.message);
+        }
+      }
+    }
+  }
 }

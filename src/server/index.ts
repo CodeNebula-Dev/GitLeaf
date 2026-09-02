@@ -137,6 +137,7 @@ app.put('/api/projects/:id/file-content', (req, res) => {
   }
   try {
     projectManager.writeFile(project.rootPath, filePath, content);
+    syncRelay.reloadFileFromDisk(project.id, filePath);
     res.json({ success: true, path: filePath });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -169,23 +170,30 @@ app.delete('/api/projects/:id/files', (req, res) => {
   res.json({ success: true, path: filePath });
 });
 
-// 4. LaTeX Compilation with Git Auto-Pull (Safe: pulls co-author changes, never overwrites remote)
+// 4. LaTeX Compilation with Git Auto-Pull (Safe: pulls co-author changes and updates editor in real-time)
 app.post('/api/projects/:id/compile', async (req, res) => {
   const project = projectManager.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   const { mainFile, engine, content } = req.body;
   const targetFile = mainFile || project.mainFile || 'main.tex';
 
-  // 1. Immediately persist active editor content to disk if provided
-  if (typeof content === 'string' && content.trim().length > 0) {
-    projectManager.writeFile(project.rootPath, targetFile, content);
-  }
-
-  // 2. Pull latest changes from co-authors before compiling
+  // 1. Check for incoming co-author changes from GitHub first
+  let hadIncomingChanges = false;
   if (project.gitRemote || GitSync.getRemote(project.rootPath)) {
     try {
-      GitSync.pull(project.rootPath);
+      const beforeCommit = GitSync.getLastCommit(project.rootPath);
+      const pulled = GitSync.pull(project.rootPath);
+      const afterCommit = GitSync.getLastCommit(project.rootPath);
+      if (pulled && beforeCommit?.hash !== afterCommit?.hash) {
+        hadIncomingChanges = true;
+        syncRelay.reloadFileFromDisk(project.id);
+      }
     } catch {}
+  }
+
+  // 2. If no new commits pulled from co-authors, persist current editor content
+  if (!hadIncomingChanges && typeof content === 'string' && content.trim().length > 0) {
+    projectManager.writeFile(project.rootPath, targetFile, content);
   }
 
   const result = await latexCompiler.compile(
@@ -209,7 +217,10 @@ app.post('/api/projects/:id/compile', async (req, res) => {
     } catch {}
   }
 
-  res.json(result);
+  res.json({
+    ...result,
+    hadIncomingChanges,
+  });
 });
 
 app.get('/api/projects/:id/pdf', (req, res) => {
@@ -580,6 +591,10 @@ app.get('/api/projects/:id/git/sync-check', (req, res) => {
   const afterCommit = GitSync.getLastCommit(project.rootPath);
   const updated = pulled && beforeCommit?.hash !== afterCommit?.hash;
 
+  if (updated) {
+    syncRelay.reloadFileFromDisk(project.id);
+  }
+
   res.json({
     hasRemote: true,
     pulled,
@@ -617,6 +632,10 @@ app.post('/api/projects/:id/git/pull', (req, res) => {
   const pulled = GitSync.pull(project.rootPath);
   const afterCommit = GitSync.getLastCommit(project.rootPath);
   const updated = pulled && beforeCommit?.hash !== afterCommit?.hash;
+
+  if (updated) {
+    syncRelay.reloadFileFromDisk(project.id);
+  }
 
   res.json({
     success: pulled,
