@@ -142,33 +142,48 @@ $ gitleaf open
 
 ---
 
-## Quick Start
+## Quick Start (One-Script Automated Installation)
 
-### 1. Prerequisites
+Clone the repository and run the single setup command for your operating system. The setup script verifies your environment, guides you through any missing requirements (like Node.js), installs dependencies, detects or configures the TeX engine, verifies the build, and gives you the exact command to launch the app.
 
-- Node.js (v18.0.0 or higher)
-- Optional: Local TeX installation (`pdflatex`, `xelatex`, or `tectonic`) for native compilation speed.
-
-### 2. Installation & Setup
+### macOS & Linux
 
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/CodeNebula-Dev/GitLeaf.git
-
-# Navigate to project root
 cd GitLeaf
 
-# Install dependencies
-npm install
+# 2. Run the one-script installer
+./setup.sh
 
-# Link GitLeaf CLI globally (allows typing `gitleaf` anywhere in terminal)
-npm link
-
-# Start development engine & Web IDE
+# 3. Start development server & Web IDE
 npm run dev
 ```
 
-The Web IDE will be available at `http://localhost:5173`. You can also run `gitleaf help` anywhere in your terminal.
+### Windows
+
+```cmd
+:: 1. Clone the repository
+git clone https://github.com/CodeNebula-Dev/GitLeaf.git
+cd GitLeaf
+
+:: 2. Run the one-script installer
+setup.bat
+
+:: 3. Start development server & Web IDE
+npm run dev
+```
+*(Or in PowerShell: `.\setup.ps1`)*
+
+---
+
+### Local Access URLs
+
+Once launched with `npm run dev`:
+- **Web IDE**: [`http://localhost:5173`](http://localhost:5173)
+- **CRDT Sync & API Relay**: [`http://localhost:3001`](http://localhost:3001)
+
+> **Zero-Install TeX Guarantee**: GitLeaf comes with an integrated PDFKit Academic TeX engine out of the box. You can write, preview, and compile papers without installing any local LaTeX distribution. If you want native LaTeX packages and advanced typography, the setup script can automatically detect or install Tectonic for you.
 
 ---
 

@@ -13,6 +13,7 @@
     "build": "tsc && vite build",
     "cli": "tsx src/cli/index.ts",
     "preview": "vite preview",
+    "setup": "node scripts/setup.mjs",
     "postinstall": "node scripts/install-tectonic.js"
   },
   "dependencies": {
