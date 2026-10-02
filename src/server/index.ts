@@ -11,7 +11,7 @@ try {
 } catch {}
 import { WebSocketServer } from 'ws';
 import { ProjectManager } from './fs/manager.js';
-import { LatexCompiler } from './compiler/runner.js';
+import { LatexCompiler, resolveMainDocument } from './compiler/runner.js';
 import { YjsSyncRelay } from './sync/yjs-relay.js';
 import { InviteManager } from './sync/invite.js';
 import { HistoryTracker } from './git/history.js';
@@ -112,7 +112,7 @@ app.get('/api/projects/:id', (req, res) => {
 app.get('/api/projects/:id/files', (req, res) => {
   const project = projectManager.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
-  const files = projectManager.getProjectFiles(project.rootPath);
+  const files = projectManager.getProjectFiles(project.rootPath, project.mainFile);
   res.json(files);
 });
 
@@ -144,6 +144,18 @@ app.put('/api/projects/:id/file-content', (req, res) => {
   }
 });
 
+app.put('/api/projects/:id/main-file', (req, res) => {
+  const project = projectManager.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  const { mainFile } = req.body;
+  if (!mainFile) return res.status(400).json({ error: 'mainFile is required' });
+
+  const updated = projectManager.setMainFile(project.id, mainFile);
+  if (!updated) return res.status(500).json({ error: 'Failed to update main file' });
+
+  res.json({ success: true, mainFile });
+});
+
 app.post('/api/projects/:id/files', (req, res) => {
   const project = projectManager.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -170,12 +182,11 @@ app.delete('/api/projects/:id/files', (req, res) => {
   res.json({ success: true, path: filePath });
 });
 
-// 4. LaTeX Compilation with Git Auto-Pull (Safe: pulls co-author changes and updates editor in real-time)
+// 4. LaTeX Compilation with Multi-File Support and Git Auto-Pull
 app.post('/api/projects/:id/compile', async (req, res) => {
   const project = projectManager.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
-  const { mainFile, engine, content } = req.body;
-  const targetFile = mainFile || project.mainFile || 'main.tex';
+  const { mainFile, activeFilePath, activeFileContent, content, engine } = req.body;
 
   // 1. Check for incoming co-author changes from GitHub first
   let hadIncomingChanges = false;
@@ -191,22 +202,33 @@ app.post('/api/projects/:id/compile', async (req, res) => {
     } catch {}
   }
 
-  // 2. If no new commits pulled from co-authors, persist current editor content
-  if (!hadIncomingChanges && typeof content === 'string' && content.trim().length > 0) {
-    projectManager.writeFile(project.rootPath, targetFile, content);
+  // 2. Persist active file changes to disk before compilation
+  if (!hadIncomingChanges) {
+    if (activeFilePath && typeof activeFileContent === 'string') {
+      projectManager.writeFile(project.rootPath, activeFilePath, activeFileContent);
+    } else if (mainFile && typeof content === 'string' && content.trim().length > 0) {
+      projectManager.writeFile(project.rootPath, mainFile, content);
+    }
+  }
+
+  // 3. Resolve project root document (multi-file aware)
+  const resolvedMain = resolveMainDocument(project.rootPath, mainFile || project.mainFile);
+  if (project.mainFile !== resolvedMain) {
+    projectManager.setMainFile(project.id, resolvedMain);
+    project.mainFile = resolvedMain;
   }
 
   const result = await latexCompiler.compile(
     project.rootPath,
-    targetFile,
+    resolvedMain,
     engine || project.engine,
     project.id
   );
 
-  // 2. Auto-record checkpoint snapshot locally
+  // 4. Auto-record checkpoint snapshot locally
   if (result.success) {
     try {
-      const files = projectManager.getProjectFiles(project.rootPath);
+      const files = projectManager.getProjectFiles(project.rootPath, project.mainFile);
       const fileContents: Record<string, string> = {};
       for (const f of files) {
         if (f.type === 'file' && (f.path.endsWith('.tex') || f.path.endsWith('.bib'))) {
@@ -228,14 +250,29 @@ app.get('/api/projects/:id/pdf', (req, res) => {
   if (!project) return res.status(404).send('Project not found');
 
   const mainBase = (project.mainFile || 'main.tex').replace(/\.tex$/i, '');
-  const pdfPath = path.resolve(project.rootPath, `${mainBase}.pdf`);
+  let pdfPath = path.resolve(project.rootPath, `${mainBase}.pdf`);
+
+  if (!fs.existsSync(pdfPath)) {
+    const baseOnly = path.basename(project.mainFile || 'main.tex', '.tex');
+    const cand1 = path.resolve(project.rootPath, `${baseOnly}.pdf`);
+    if (fs.existsSync(cand1)) {
+      pdfPath = cand1;
+    } else {
+      try {
+        const pdfFiles = fs.readdirSync(project.rootPath).filter((f) => f.endsWith('.pdf'));
+        if (pdfFiles.length > 0) {
+          pdfPath = path.resolve(project.rootPath, pdfFiles[0]);
+        }
+      } catch {}
+    }
+  }
 
   if (!fs.existsSync(pdfPath)) {
     return res.status(404).send('PDF not yet compiled. Click Recompile in the editor.');
   }
 
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="${mainBase}.pdf"`);
+  res.setHeader('Content-Disposition', `inline; filename="${path.basename(pdfPath)}"`);
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');

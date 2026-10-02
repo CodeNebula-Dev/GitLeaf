@@ -399,8 +399,17 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     if (monacoRef.current && editorRef.current) {
       const model = editorRef.current.getModel();
       if (model) {
+        const normFilePath = filePath.replace(/^[./\\]+/, '').replace(/\\/g, '/');
         const markers = diagnostics
-          .filter((d) => d.file === filePath || !d.file)
+          .filter((d) => {
+            if (!d.file) return true;
+            const normDFile = d.file.replace(/^[./\\]+/, '').replace(/\\/g, '/');
+            return (
+              normDFile === normFilePath ||
+              normFilePath.endsWith(`/${normDFile}`) ||
+              normDFile.endsWith(`/${normFilePath}`)
+            );
+          })
           .map((d) => ({
             startLineNumber: d.line || 1,
             startColumn: 1,

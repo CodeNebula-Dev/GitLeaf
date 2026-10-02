@@ -1,10 +1,32 @@
 import { CompilerDiagnostic } from '../../shared/types.js';
 
-export function parseLatexLog(logContent: string, defaultFile: string = 'main.tex'): CompilerDiagnostic[] {
-  const diagnostics: CompilerDiagnostic[] = [];
+export function parseLatexLog(
+  logContent: string,
+  defaultFile: string = 'main.tex',
+  availableFiles: string[] = []
+): CompilerDiagnostic[] {
+  const rawDiagnostics: CompilerDiagnostic[] = [];
   const lines = logContent.split('\n');
 
+  const fileStack: string[] = [defaultFile];
   let currentFile = defaultFile;
+
+  // Normalization helper: maps log file paths (e.g. "./sections/intro.tex" or "intro.tex") to project files
+  const normalizePath = (filePath: string): string => {
+    const clean = filePath.replace(/^[./\\]+/, '').replace(/\\/g, '/').trim();
+    if (!clean) return defaultFile;
+
+    if (availableFiles.length > 0) {
+      // 1. Exact match
+      if (availableFiles.includes(clean)) return clean;
+      // 2. Suffix match (e.g. "intro.tex" matches "sections/intro.tex")
+      const matched = availableFiles.find(
+        (f) => f === clean || f.endsWith(`/${clean}`) || clean.endsWith(`/${f}`)
+      );
+      if (matched) return matched;
+    }
+    return clean;
+  };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -13,9 +35,9 @@ export function parseLatexLog(logContent: string, defaultFile: string = 'main.te
     // 1. Tectonic Error format: error: file.tex:line: message
     const tectonicErrorMatch = line.match(/^error:\s*(.+?):(\d+):\s*(.+)$/i);
     if (tectonicErrorMatch) {
-      diagnostics.push({
+      rawDiagnostics.push({
         type: 'error',
-        file: tectonicErrorMatch[1].trim(),
+        file: normalizePath(tectonicErrorMatch[1]),
         line: parseInt(tectonicErrorMatch[2], 10),
         message: tectonicErrorMatch[3].trim(),
         raw: line,
@@ -36,9 +58,9 @@ export function parseLatexLog(logContent: string, defaultFile: string = 'main.te
         continue;
       }
 
-      diagnostics.push({
+      rawDiagnostics.push({
         type: 'warning',
-        file: tectonicWarnMatch[1]?.trim() || currentFile,
+        file: normalizePath(tectonicWarnMatch[1] || currentFile),
         line: tectonicWarnMatch[2] ? parseInt(tectonicWarnMatch[2], 10) : 1,
         message: warnMsg,
         raw: line,
@@ -51,16 +73,28 @@ export function parseLatexLog(logContent: string, defaultFile: string = 'main.te
       continue;
     }
 
-    // 4. File name tracking e.g. (./sections/intro.tex or (main.tex
-    const fileMatch = line.match(/\(((\.?\/)?[\w-]+\/[\w-]+\.tex)/);
-    if (fileMatch) {
-      currentFile = fileMatch[1].replace(/^\.\//, '');
+    // 4. TeX file open/close tracking e.g. (./sections/intro.tex or (subfile.tex
+    const fileOpenMatch = line.match(/\(([^\s()]+\.tex)/);
+    if (fileOpenMatch) {
+      const opened = normalizePath(fileOpenMatch[1]);
+      fileStack.push(opened);
+      currentFile = opened;
+    }
+
+    // Check for closing paren that might close the current file
+    if (line.includes(')') && fileStack.length > 1) {
+      const closeCount = (line.match(/\)/g) || []).length;
+      const openCount = (line.match(/\(/g) || []).length;
+      if (closeCount > openCount && fileStack.length > 1) {
+        fileStack.pop();
+        currentFile = fileStack[fileStack.length - 1];
+      }
     }
 
     // 5. Standard TeX Warning line
     if (
       line.includes('LaTeX Warning:') ||
-      line.includes('Package ') && line.includes('Warning:') ||
+      (line.includes('Package ') && line.includes('Warning:')) ||
       line.includes('Overfull \\hbox') ||
       line.includes('Underfull \\hbox')
     ) {
@@ -73,10 +107,13 @@ export function parseLatexLog(logContent: string, defaultFile: string = 'main.te
         continue;
       }
 
-      const lineNumMatch = line.match(/input line (\d+)/i) || line.match(/line (\d+)/i) || line.match(/lines (\d+)--\d+/i);
+      const lineNumMatch =
+        line.match(/input line (\d+)/i) ||
+        line.match(/line (\d+)/i) ||
+        line.match(/lines (\d+)--\d+/i);
       const lineNum = lineNumMatch ? parseInt(lineNumMatch[1], 10) : 1;
 
-      diagnostics.push({
+      rawDiagnostics.push({
         type: 'warning',
         file: currentFile,
         line: lineNum,
@@ -103,7 +140,7 @@ export function parseLatexLog(logContent: string, defaultFile: string = 'main.te
         }
       }
 
-      diagnostics.push({
+      rawDiagnostics.push({
         type: 'error',
         file: currentFile,
         line: lineNum,
@@ -116,14 +153,27 @@ export function parseLatexLog(logContent: string, defaultFile: string = 'main.te
     // 7. Standard pdflatex file:line: error format (e.g. ./main.tex:24: Undefined control sequence.)
     const fileLineErrorMatch = line.match(/^(\.?\/?[^:\s]+\.tex):(\d+):\s*(.+)$/i);
     if (fileLineErrorMatch) {
-      diagnostics.push({
+      rawDiagnostics.push({
         type: 'error',
-        file: fileLineErrorMatch[1].replace(/^\.\//, ''),
+        file: normalizePath(fileLineErrorMatch[1]),
         line: parseInt(fileLineErrorMatch[2], 10),
-        message: fileLineErrorMatch[3],
+        message: fileLineErrorMatch[3].trim(),
         raw: line,
       });
       continue;
+    }
+  }
+
+  // Deduplicate diagnostics (type + file + line + simplified message)
+  const seen = new Set<string>();
+  const diagnostics: CompilerDiagnostic[] = [];
+
+  for (const d of rawDiagnostics) {
+    const simplifiedMsg = d.message.replace(/[^\w\s]/g, '').toLowerCase().slice(0, 30);
+    const key = `${d.type}|${d.file}|${d.line}|${simplifiedMsg}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      diagnostics.push(d);
     }
   }
 

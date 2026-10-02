@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Trash2, ChevronRight, ChevronDown, FolderOpen, Folder, FileText, Wrench } from 'lucide-react';
+import { Trash2, ChevronRight, ChevronDown, FolderOpen, Folder, FileText, Wrench, Star } from 'lucide-react';
 import { ProjectFile } from '../../shared/types.js';
 
 // Build artifact extensions that should be grouped into a collapsible section
@@ -96,6 +96,7 @@ interface FileTreeProps {
   onSelectFile: (path: string) => void;
   onCreateFile: (path: string, type: 'file' | 'directory') => void;
   onDeleteFile: (path: string) => void;
+  onSetMainFile?: (path: string) => void;
   mainFile?: string;
 }
 
@@ -105,6 +106,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
   onSelectFile,
   onCreateFile,
   onDeleteFile,
+  onSetMainFile,
   mainFile = 'main.tex',
 }) => {
   const [newFileInputOpen, setNewFileInputOpen] = useState(false);
@@ -254,7 +256,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
       >
         <div className="flex items-center space-x-1.5 truncate">
           {isMainFile ? (
-            <span className="text-leaf-400 font-bold select-none text-[10px]">★</span>
+            <span className="text-amber-400 font-bold select-none text-[11px]" title="Main Document (compiles automatically)">★</span>
           ) : (
             <FileText className="w-3 h-3 text-dark-muted/50 shrink-0" />
           )}
@@ -263,20 +265,35 @@ export const FileTree: React.FC<FileTreeProps> = ({
           </span>
         </div>
 
-        {!isMainFile && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (confirm(`Delete ${node.name}?`)) {
-                onDeleteFile(node.path);
-              }
-            }}
-            className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400 rounded transition-opacity"
-            title="Delete File"
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
-        )}
+        <div className="flex items-center space-x-1 shrink-0">
+          {node.name.endsWith('.tex') && !isMainFile && onSetMainFile && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSetMainFile(node.path);
+              }}
+              className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-amber-300 rounded transition-opacity"
+              title="Set as Main Document"
+            >
+              <Star className="w-3 h-3 text-dark-muted hover:text-amber-300" />
+            </button>
+          )}
+
+          {!isMainFile && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirm(`Delete ${node.name}?`)) {
+                  onDeleteFile(node.path);
+                }
+              }}
+              className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400 rounded transition-opacity"
+              title="Delete File"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
+        </div>
       </div>
     );
   };

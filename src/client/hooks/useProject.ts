@@ -187,18 +187,16 @@ export function useProject() {
     [activeFilePath, saveContent]
   );
 
-  // 5. Compile Project
+  // 5. Compile Project (Multi-file aware: always compiles root main document while persisting active file)
   const compile = useCallback(async () => {
     if (!currentProject) return;
     setIsCompiling(true);
 
     const defaultMain = currentProject.mainFile || 'main.tex';
-    // If the user is actively editing a .tex file, compile that file; otherwise compile main
-    const targetFile = activeFilePath.endsWith('.tex') ? activeFilePath : defaultMain;
 
-    // Flush any pending save timeout
+    // Flush any pending save timeout and persist active file immediately
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    if (activeFilePath && activeFileContent) {
+    if (activeFilePath && activeFileContent !== undefined) {
       await saveContent(activeFilePath, activeFileContent);
     }
 
@@ -207,9 +205,10 @@ export function useProject() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mainFile: targetFile,
+          mainFile: defaultMain,
+          activeFilePath,
+          activeFileContent,
           engine: currentProject.engine,
-          content: activeFilePath === targetFile ? activeFileContent : undefined,
         }),
       });
       if (res.ok) {
@@ -228,6 +227,27 @@ export function useProject() {
       setIsCompiling(false);
     }
   }, [currentProject, activeFilePath, activeFileContent, saveContent, fetchFiles, fetchFileContent]);
+
+  // Set Main Document for project
+  const setMainFile = useCallback(
+    async (filePath: string) => {
+      if (!currentProject) return;
+      try {
+        const res = await fetch(`/api/projects/${currentProject.id}/main-file`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mainFile: filePath }),
+        });
+        if (res.ok) {
+          setCurrentProject((prev) => (prev ? { ...prev, mainFile: filePath } : null));
+          await fetchFiles();
+        }
+      } catch (err) {
+        console.error('Error setting main file:', err);
+      }
+    },
+    [currentProject, fetchFiles]
+  );
 
   // 6. Create File or Folder
   const createFile = async (relPath: string, type: 'file' | 'directory' = 'file') => {
@@ -388,12 +408,22 @@ export function useProject() {
     }
   };
 
-  const jumpToLine = useCallback((file: string, line: number) => {
-    if (file && file !== currentPathRef.current) {
-      setActiveFilePath(file);
-    }
-    setTargetJumpLine(line);
-  }, [setActiveFilePath]);
+  const jumpToLine = useCallback(
+    (file: string, line: number) => {
+      if (file) {
+        const normFile = file.replace(/^[./\\]+/, '').replace(/\\/g, '/');
+        const matched = files.find(
+          (f) => f.path === normFile || f.path.endsWith(`/${normFile}`) || f.name === normFile
+        );
+        const targetPath = matched ? matched.path : normFile;
+        if (targetPath !== currentPathRef.current) {
+          setActiveFilePath(targetPath);
+        }
+      }
+      setTargetJumpLine(line);
+    },
+    [files, setActiveFilePath]
+  );
 
   return {
     projects,
@@ -421,6 +451,7 @@ export function useProject() {
     formatCode,
     setCursorPosition,
     setTargetJumpLine,
+    setMainFile,
     fetchProjects,
     fetchFiles,
     refreshProjects: fetchProjects,

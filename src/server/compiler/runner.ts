@@ -6,35 +6,127 @@ import { CompilationResult, CompilerDiagnostic } from '../../shared/types.js';
 import { parseLatexLog } from './parser.js';
 import { detectSystemTeX } from '../../cli/system.js';
 
+export function resolveMainDocument(projectRoot: string, preferredFile?: string): string {
+  // 1. If preferredFile is given and exists, check if it contains a root magic comment or \documentclass
+  if (preferredFile) {
+    const fullPreferred = path.join(projectRoot, preferredFile);
+    if (fs.existsSync(fullPreferred)) {
+      try {
+        const content = fs.readFileSync(fullPreferred, 'utf-8');
+        // Check for TeX magic root comment: % !TeX root = ... or % !TEX root = ...
+        const rootMatch = content.match(/%\s*!T[eE]X\s+root\s*=\s*([^\r\n]+)/i);
+        if (rootMatch) {
+          const rootTarget = rootMatch[1].trim();
+          const resolvedRoot = path.normalize(path.join(path.dirname(preferredFile), rootTarget));
+          if (fs.existsSync(path.join(projectRoot, resolvedRoot))) {
+            return resolvedRoot.replace(/\\/g, '/');
+          }
+        }
+        // If preferredFile actually has \documentclass, it's a valid root document
+        if (content.includes('\\documentclass')) {
+          return preferredFile;
+        }
+      } catch {}
+    }
+  }
+
+  // 2. Read .gitleaf.json to see if a mainFile is configured and exists on disk
+  const metaPath = path.join(projectRoot, '.gitleaf.json');
+  if (fs.existsSync(metaPath)) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+      if (meta.mainFile && fs.existsSync(path.join(projectRoot, meta.mainFile))) {
+        return meta.mainFile;
+      }
+    } catch {}
+  }
+
+  // 3. Check for standard root file names in projectRoot
+  const standardNames = ['main.tex', 'document.tex', 'paper.tex', 'article.tex', 'index.tex'];
+  for (const name of standardNames) {
+    if (fs.existsSync(path.join(projectRoot, name))) {
+      return name;
+    }
+  }
+
+  // 4. Scan all .tex files in project to find the one with \documentclass
+  try {
+    const scanDir = (dir: string, relDir: string = ''): string | null => {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const e of entries) {
+        if (e.name.startsWith('.') || e.name === 'node_modules' || e.name === 'dist') continue;
+        const full = path.join(dir, e.name);
+        const rel = relDir ? `${relDir}/${e.name}` : e.name;
+        if (e.isDirectory() && relDir === '') {
+          const found = scanDir(full, rel);
+          if (found) return found;
+        } else if (e.isFile() && e.name.endsWith('.tex')) {
+          const content = fs.readFileSync(full, 'utf-8');
+          if (content.includes('\\documentclass')) {
+            return rel.replace(/\\/g, '/');
+          }
+        }
+      }
+      return null;
+    };
+    const foundDoc = scanDir(projectRoot);
+    if (foundDoc) return foundDoc;
+  } catch {}
+
+  // 5. Fallback
+  return preferredFile || 'main.tex';
+}
+
 export class LatexCompiler {
   public async compile(projectRoot: string, mainFile: string = 'main.tex', engine?: string, projectId?: string): Promise<CompilationResult> {
     const startTime = Date.now();
     const systemStatus = detectSystemTeX();
 
-    const fullMainPath = path.join(projectRoot, mainFile);
+    // Multi-file resolution: always compile the project's root document
+    const resolvedMain = resolveMainDocument(projectRoot, mainFile);
+    const fullMainPath = path.join(projectRoot, resolvedMain);
+
     if (!fs.existsSync(fullMainPath)) {
       return {
         success: false,
         diagnostics: [
           {
             type: 'error',
-            file: mainFile,
+            file: resolvedMain,
             line: 1,
-            message: `Main file "${mainFile}" not found in project.`,
+            message: `Root document "${resolvedMain}" not found in project.`,
           },
         ],
-        log: `Error: Main file ${mainFile} does not exist.`,
+        log: `Error: Root document ${resolvedMain} does not exist.`,
         durationMs: Date.now() - startTime,
         timestamp: Date.now(),
       };
     }
+
+    // Collect all project relative file paths for diagnostic normalization
+    const projectFiles: string[] = [];
+    try {
+      const collectFiles = (dir: string, relDir: string = '') => {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const e of entries) {
+          if (e.name.startsWith('.') || e.name === 'node_modules' || e.name === 'dist') continue;
+          const rel = relDir ? `${relDir}/${e.name}` : e.name;
+          if (e.isDirectory()) {
+            collectFiles(path.join(dir, e.name), rel);
+          } else {
+            projectFiles.push(rel.replace(/\\/g, '/'));
+          }
+        }
+      };
+      collectFiles(projectRoot);
+    } catch {}
 
     // Determine which native engine to actually use, based on what's installed on this machine
     const hasAnyNative = systemStatus.hasTectonic || systemStatus.hasPdflatex || systemStatus.hasXelatex;
 
     if (hasAnyNative) {
       // Try native compilation first; if spawn fails, fall back to PDFKit
-      const nativeRes = await this.runNativeCompiler(projectRoot, mainFile, systemStatus, startTime, projectId);
+      const nativeRes = await this.runNativeCompiler(projectRoot, resolvedMain, systemStatus, startTime, projectId, projectFiles);
 
       // If spawn itself failed (binary not found / ENOENT), fall back to PDFKit
       const spawnFailed = !nativeRes.success && nativeRes.log?.includes('Spawn error:');
@@ -45,7 +137,7 @@ export class LatexCompiler {
     }
 
     // Fallback: High-Fidelity Multi-Page PDFKit Academic Engine (when no native TeX compiler works)
-    return await this.runAcademicPdfEngine(projectRoot, mainFile, startTime, projectId);
+    return await this.runAcademicPdfEngine(projectRoot, resolvedMain, startTime, projectId);
   }
 
   private runNativeCompiler(
@@ -53,7 +145,8 @@ export class LatexCompiler {
     mainFile: string,
     systemStatus: ReturnType<typeof detectSystemTeX>,
     startTime: number,
-    projectId?: string
+    projectId?: string,
+    projectFiles: string[] = []
   ): Promise<CompilationResult> {
     return new Promise((resolve) => {
       let cmd: string;
@@ -62,7 +155,7 @@ export class LatexCompiler {
       // Pick engine based on what is actually installed on this system
       if (systemStatus.hasTectonic && systemStatus.tectonicPath) {
         cmd = systemStatus.tectonicPath;
-        args = ['-r', '2', '--synctex', '--keep-logs', '--print', mainFile];
+        args = ['--synctex', '--keep-logs', '--print', mainFile];
       } else if (systemStatus.hasPdflatex) {
         cmd = systemStatus.pdflatexPath || 'pdflatex';
         args = ['-synctex=1', '-interaction=nonstopmode', '-file-line-error', mainFile];
@@ -113,12 +206,13 @@ export class LatexCompiler {
         resolved = true;
 
         const fullLog = `${stdout}\n${stderr}`;
-        const baseName = mainFile.replace(/\.tex$/i, '');
-        const pdfFileName = `${baseName}.pdf`;
-        const pdfPath = path.join(projectRoot, pdfFileName);
+        const baseName = path.basename(mainFile).replace(/\.tex$/i, '');
+        const candidate1 = path.join(projectRoot, `${baseName}.pdf`);
+        const candidate2 = path.join(projectRoot, mainFile.replace(/\.tex$/i, '.pdf'));
+        const pdfPath = fs.existsSync(candidate1) ? candidate1 : (fs.existsSync(candidate2) ? candidate2 : candidate1);
         const hasPdf = fs.existsSync(pdfPath);
 
-        const diagnostics = parseLatexLog(fullLog, mainFile);
+        const diagnostics = parseLatexLog(fullLog, mainFile, projectFiles);
         const hasErrors = diagnostics.some((d) => d.type === 'error');
         const success = hasPdf && (code === 0 || !hasErrors);
 
@@ -178,9 +272,12 @@ export class LatexCompiler {
     return new Promise((resolve) => {
       try {
         const fullPath = path.join(projectRoot, mainFile);
-        const rawTex = fs.existsSync(fullPath) ? fs.readFileSync(fullPath, 'utf-8') : '';
-        const baseName = mainFile.replace(/\.tex$/i, '');
+        let rawTex = fs.existsSync(fullPath) ? fs.readFileSync(fullPath, 'utf-8') : '';
+        const baseName = path.basename(mainFile).replace(/\.tex$/i, '');
         const pdfPath = path.join(projectRoot, `${baseName}.pdf`);
+
+        // Multi-file resolution: recursively expand all \input{...} and \include{...}
+        rawTex = this.expandTexInputs(projectRoot, mainFile, rawTex);
 
         if (!rawTex.trim() || !rawTex.includes('\\begin{document}')) {
           // Remove stale PDF if document is invalid/empty
@@ -216,7 +313,7 @@ export class LatexCompiler {
 
         // Extract sections and body text
         const sections = this.extractSections(rawTex);
-        const references = this.extractBibliography(rawTex);
+        const references = this.extractBibliography(projectRoot, rawTex);
 
         // Generate PDF
         const doc = new PDFDocument({
@@ -482,8 +579,48 @@ export class LatexCompiler {
     return sections;
   }
 
-  private extractBibliography(rawTex: string): string[] {
+  private expandTexInputs(
+    projectRoot: string,
+    filePath: string,
+    content: string,
+    visited = new Set<string>()
+  ): string {
+    const fullPath = path.resolve(projectRoot, filePath);
+    if (visited.has(fullPath)) return content;
+    visited.add(fullPath);
+
+    const currentDir = path.dirname(filePath);
+
+    return content.replace(/\\(?:input|include)\{([^}]+)\}/g, (match, includedPath) => {
+      let candidate = includedPath.trim();
+      if (!candidate.endsWith('.tex')) {
+        candidate += '.tex';
+      }
+      // Try resolving relative to current file's directory first, then relative to projectRoot
+      let targetRel = path.join(currentDir, candidate).replace(/\\/g, '/');
+      let targetPath = path.resolve(projectRoot, targetRel);
+
+      if (!fs.existsSync(targetPath)) {
+        targetRel = candidate.replace(/\\/g, '/');
+        targetPath = path.resolve(projectRoot, targetRel);
+      }
+
+      if (fs.existsSync(targetPath) && !visited.has(targetPath)) {
+        try {
+          const subContent = fs.readFileSync(targetPath, 'utf-8');
+          return this.expandTexInputs(projectRoot, targetRel, subContent, visited);
+        } catch {
+          return match;
+        }
+      }
+      return '';
+    });
+  }
+
+  private extractBibliography(projectRoot: string, rawTex: string): string[] {
     const items: string[] = [];
+
+    // 1. thebibliography environment in the document
     const bibMatch = rawTex.match(/\\begin\{thebibliography\}[\s\S]*?([\s\S]*?)\\end\{thebibliography\}/);
     if (bibMatch) {
       const rawBib = bibMatch[1];
@@ -493,6 +630,74 @@ export class LatexCompiler {
         if (cleaned) items.push(cleaned);
       }
     }
+
+    // 2. Look for external .bib files (via \bibliography{...} or searching the project root)
+    try {
+      const bibFiles: string[] = [];
+      const bibCmdMatches = Array.from(rawTex.matchAll(/\\(?:bibliography|addbibresource)\{([^}]+)\}/g));
+      for (const m of bibCmdMatches) {
+        const fileArgs = m[1].split(',');
+        for (let arg of fileArgs) {
+          arg = arg.trim();
+          if (!arg.endsWith('.bib')) arg += '.bib';
+          if (!bibFiles.includes(arg)) bibFiles.push(arg);
+        }
+      }
+
+      // Also auto-detect any .bib files in the project root
+      if (fs.existsSync(projectRoot)) {
+        const rootEntries = fs.readdirSync(projectRoot);
+        for (const e of rootEntries) {
+          if (e.endsWith('.bib') && !bibFiles.includes(e)) {
+            bibFiles.push(e);
+          }
+        }
+      }
+
+      for (const bibFile of bibFiles) {
+        const bibPath = path.resolve(projectRoot, bibFile);
+        if (fs.existsSync(bibPath)) {
+          const bibContent = fs.readFileSync(bibPath, 'utf-8');
+          const parsed = this.parseBibtexFile(bibContent);
+          for (const item of parsed) {
+            if (!items.includes(item)) items.push(item);
+          }
+        }
+      }
+    } catch {}
+
     return items;
+  }
+
+  private parseBibtexFile(content: string): string[] {
+    const entries: string[] = [];
+    const entryRegex = /@\w+\s*\{[^,]+,([\s\S]*?)(?=@\w+\s*\{|$)/g;
+    let match;
+
+    while ((match = entryRegex.exec(content)) !== null) {
+      const body = match[1];
+      const getField = (field: string) => {
+        const fieldRegex = new RegExp(`${field}\\s*=\\s*["{]([\\s\\S]*?)["}],?`, 'i');
+        const m = body.match(fieldRegex);
+        return m ? this.cleanTexText(m[1].trim().replace(/\s+/g, ' ')) : '';
+      };
+
+      const author = getField('author');
+      const title = getField('title');
+      const journal = getField('journal') || getField('booktitle') || getField('publisher');
+      const year = getField('year');
+
+      const parts: string[] = [];
+      if (author) parts.push(author);
+      if (title) parts.push(`"${title}"`);
+      if (journal) parts.push(journal);
+      if (year) parts.push(year);
+
+      if (parts.length > 0) {
+        entries.push(parts.join(', ') + '.');
+      }
+    }
+
+    return entries;
   }
 }

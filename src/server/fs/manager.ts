@@ -105,8 +105,9 @@ export class ProjectManager {
     );
   }
 
-  public getProjectFiles(projectRoot: string): ProjectFile[] {
+  public getProjectFiles(projectRoot: string, mainFile?: string): ProjectFile[] {
     const files: ProjectFile[] = [];
+    const targetMain = mainFile || 'main.tex';
 
     const walk = (dir: string, relDir: string = '') => {
       if (!fs.existsSync(dir)) return;
@@ -136,7 +137,7 @@ export class ProjectManager {
             type: 'file',
             size: stats.size,
             lastModified: stats.mtimeMs,
-            isMain: entry.name === 'main.tex',
+            isMain: relPath === targetMain || entry.name === targetMain,
           });
         }
       }
@@ -193,6 +194,34 @@ export class ProjectManager {
       return true;
     }
     return false;
+  }
+
+  public setMainFile(projectId: string, mainFile: string): boolean {
+    const project = this.getProject(projectId);
+    if (!project) return false;
+    project.mainFile = mainFile;
+    project.updatedAt = Date.now();
+    const metaPath = path.join(project.rootPath, '.gitleaf.json');
+    try {
+      fs.writeFileSync(metaPath, JSON.stringify(project, null, 2), 'utf-8');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public updateProject(projectId: string, updates: Partial<ProjectMetadata>): ProjectMetadata | null {
+    const project = this.getProject(projectId);
+    if (!project) return null;
+    Object.assign(project, updates);
+    project.updatedAt = Date.now();
+    const metaPath = path.join(project.rootPath, '.gitleaf.json');
+    try {
+      fs.writeFileSync(metaPath, JSON.stringify(project, null, 2), 'utf-8');
+      return project;
+    } catch {
+      return null;
+    }
   }
 
   private synthesizeMetadata(folderName: string, projPath: string): ProjectMetadata {

@@ -46,6 +46,7 @@ export const App: React.FC = () => {
     deleteFile,
     createProject,
     deleteProject,
+    setMainFile,
     jumpToLine,
     refreshProjects,
   } = useProject();
@@ -147,6 +148,7 @@ export const App: React.FC = () => {
               onSelectFile={setActiveFilePath}
               onCreateFile={createFile}
               onDeleteFile={deleteFile}
+              onSetMainFile={setMainFile}
               mainFile={currentProject?.mainFile || 'main.tex'}
             />
 
