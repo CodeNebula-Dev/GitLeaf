@@ -214,6 +214,7 @@ export class LatexCompiler {
 
         const diagnostics = parseLatexLog(fullLog, mainFile, projectFiles);
         const hasErrors = diagnostics.some((d) => d.type === 'error');
+        // Match Overleaf behavior: succeed when PDF exists and either exit code is 0 or no real errors parsed
         const success = hasPdf && (code === 0 || !hasErrors);
 
         // If compilation failed and no diagnostics parsed, extract meaningful error message
@@ -230,10 +231,11 @@ export class LatexCompiler {
           });
         }
 
+        // Always serve the PDF if it exists, even when there are errors (matches Overleaf behavior)
         resolve({
           success,
-          pdfUrl: (success && hasPdf) ? `/api/projects/${projectId || path.basename(projectRoot)}/pdf?t=${Date.now()}` : undefined,
-          pdfPath: (success && hasPdf) ? pdfPath : undefined,
+          pdfUrl: hasPdf ? `/api/projects/${projectId || path.basename(projectRoot)}/pdf?t=${Date.now()}` : undefined,
+          pdfPath: hasPdf ? pdfPath : undefined,
           diagnostics,
           log: fullLog,
           durationMs: Date.now() - startTime,

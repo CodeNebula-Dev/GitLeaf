@@ -35,11 +35,21 @@ export function parseLatexLog(
     // 1. Tectonic Error format: error: file.tex:line: message
     const tectonicErrorMatch = line.match(/^error:\s*(.+?):(\d+):\s*(.+)$/i);
     if (tectonicErrorMatch) {
+      const msg = tectonicErrorMatch[3].trim();
+
+      // Demote box-overflow and other warning-class messages that Tectonic sometimes reports as "error:"
+      const isActuallyWarning =
+        /Overfull\s+\\[hv]box/i.test(msg) ||
+        /Underfull\s+\\[hv]box/i.test(msg) ||
+        /LaTeX Warning:/i.test(msg) ||
+        /Package .+ Warning:/i.test(msg) ||
+        /Font Warning:/i.test(msg);
+
       rawDiagnostics.push({
-        type: 'error',
+        type: isActuallyWarning ? 'warning' : 'error',
         file: normalizePath(tectonicErrorMatch[1]),
         line: parseInt(tectonicErrorMatch[2], 10),
-        message: tectonicErrorMatch[3].trim(),
+        message: msg,
         raw: line,
       });
       continue;
@@ -150,14 +160,33 @@ export function parseLatexLog(
       continue;
     }
 
-    // 7. Standard pdflatex file:line: error format (e.g. ./main.tex:24: Undefined control sequence.)
+    // 7. Standard pdflatex file:line: message format (e.g. ./main.tex:24: Undefined control sequence.)
     const fileLineErrorMatch = line.match(/^(\.?\/?[^:\s]+\.tex):(\d+):\s*(.+)$/i);
     if (fileLineErrorMatch) {
+      const msg = fileLineErrorMatch[3].trim();
+
+      // Determine if this is actually a warning rather than an error
+      const isWarning =
+        /Overfull\s+\\[hv]box/i.test(msg) ||
+        /Underfull\s+\\[hv]box/i.test(msg) ||
+        /LaTeX Warning:/i.test(msg) ||
+        /Package .+ Warning:/i.test(msg) ||
+        /Font Warning:/i.test(msg);
+
+      // Skip entirely benign messages
+      if (
+        msg.includes('Rerun to get') ||
+        msg.includes('inputenc package ignored') ||
+        msg.includes('rerunfilecheck')
+      ) {
+        continue;
+      }
+
       rawDiagnostics.push({
-        type: 'error',
+        type: isWarning ? 'warning' : 'error',
         file: normalizePath(fileLineErrorMatch[1]),
         line: parseInt(fileLineErrorMatch[2], 10),
-        message: fileLineErrorMatch[3].trim(),
+        message: msg,
         raw: line,
       });
       continue;
