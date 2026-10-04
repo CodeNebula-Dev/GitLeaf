@@ -158,7 +158,7 @@ export class LatexCompiler {
 
       if (preferred === 'tectonic' && systemStatus.hasTectonic && systemStatus.tectonicPath) {
         cmd = systemStatus.tectonicPath;
-        args = ['--synctex', '--keep-logs', '--print', mainFile];
+        args = ['--synctex', '--keep-logs', '--print', '-Z', 'continue-on-errors', mainFile];
       } else if (preferred === 'xelatex' && systemStatus.hasXelatex) {
         cmd = 'xelatex';
         args = ['-synctex=1', '-interaction=nonstopmode', '-file-line-error', mainFile];
@@ -169,7 +169,7 @@ export class LatexCompiler {
       } else if (systemStatus.hasTectonic && systemStatus.tectonicPath) {
         // Fallback to Tectonic if pdflatex is not available
         cmd = systemStatus.tectonicPath;
-        args = ['--synctex', '--keep-logs', '--print', mainFile];
+        args = ['--synctex', '--keep-logs', '--print', '-Z', 'continue-on-errors', mainFile];
       } else if (systemStatus.hasXelatex) {
         cmd = 'xelatex';
         args = ['-synctex=1', '-interaction=nonstopmode', '-file-line-error', mainFile];
