@@ -114,7 +114,9 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             <div>
               <span className="font-bold">LaTeX Compilation Failed:</span>
               <p className="mt-0.5 text-[11px] text-red-200">
-                {compilationResult?.diagnostics?.[0]?.message || 'Please check the bottom Diagnostics log for syntax errors.'}
+                {compilationResult?.diagnostics?.find(d => d.type === 'error')?.message
+                  || compilationResult?.diagnostics?.[0]?.message
+                  || 'Please check the bottom Diagnostics log for syntax errors.'}
               </p>
             </div>
           </div>

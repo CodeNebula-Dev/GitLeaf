@@ -126,7 +126,7 @@ export class LatexCompiler {
 
     if (hasAnyNative) {
       // Try native compilation first; if spawn fails, fall back to PDFKit
-      const nativeRes = await this.runNativeCompiler(projectRoot, resolvedMain, systemStatus, startTime, projectId, projectFiles);
+      const nativeRes = await this.runNativeCompiler(projectRoot, resolvedMain, systemStatus, startTime, engine, projectId, projectFiles);
 
       // If spawn itself failed (binary not found / ENOENT), fall back to PDFKit
       const spawnFailed = !nativeRes.success && nativeRes.log?.includes('Spawn error:');
@@ -145,6 +145,7 @@ export class LatexCompiler {
     mainFile: string,
     systemStatus: ReturnType<typeof detectSystemTeX>,
     startTime: number,
+    engine?: string,
     projectId?: string,
     projectFiles: string[] = []
   ): Promise<CompilationResult> {
@@ -152,13 +153,23 @@ export class LatexCompiler {
       let cmd: string;
       let args: string[];
 
-      // Pick engine based on what is actually installed on this system
-      if (systemStatus.hasTectonic && systemStatus.tectonicPath) {
+      // Respect user's engine preference; default to pdflatex (matches Overleaf behavior)
+      const preferred = (engine || 'pdflatex').toLowerCase();
+
+      if (preferred === 'tectonic' && systemStatus.hasTectonic && systemStatus.tectonicPath) {
         cmd = systemStatus.tectonicPath;
         args = ['--synctex', '--keep-logs', '--print', mainFile];
+      } else if (preferred === 'xelatex' && systemStatus.hasXelatex) {
+        cmd = 'xelatex';
+        args = ['-synctex=1', '-interaction=nonstopmode', '-file-line-error', mainFile];
       } else if (systemStatus.hasPdflatex) {
+        // Default: pdflatex — most compatible with Overleaf
         cmd = systemStatus.pdflatexPath || 'pdflatex';
         args = ['-synctex=1', '-interaction=nonstopmode', '-file-line-error', mainFile];
+      } else if (systemStatus.hasTectonic && systemStatus.tectonicPath) {
+        // Fallback to Tectonic if pdflatex is not available
+        cmd = systemStatus.tectonicPath;
+        args = ['--synctex', '--keep-logs', '--print', mainFile];
       } else if (systemStatus.hasXelatex) {
         cmd = 'xelatex';
         args = ['-synctex=1', '-interaction=nonstopmode', '-file-line-error', mainFile];
@@ -213,6 +224,18 @@ export class LatexCompiler {
         const hasPdf = fs.existsSync(pdfPath);
 
         const diagnostics = parseLatexLog(fullLog, mainFile, projectFiles);
+
+        // Demote errors from system/package files that are not part of the project
+        for (const d of diagnostics) {
+          if (
+            d.type === 'error' &&
+            d.file &&
+            !projectFiles.some(pf => d.file === pf || d.file.endsWith(`/${pf}`) || pf.endsWith(`/${d.file}`))
+          ) {
+            d.type = 'warning';
+          }
+        }
+
         const hasErrors = diagnostics.some((d) => d.type === 'error');
         // Match Overleaf behavior: succeed when PDF exists and either exit code is 0 or no real errors parsed
         const success = hasPdf && (code === 0 || !hasErrors);
