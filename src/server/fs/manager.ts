@@ -137,7 +137,7 @@ export class ProjectManager {
             type: 'file',
             size: stats.size,
             lastModified: stats.mtimeMs,
-            isMain: relPath === targetMain || entry.name === targetMain,
+            isMain: relPath === targetMain,
           });
         }
       }

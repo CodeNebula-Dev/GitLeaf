@@ -7,26 +7,25 @@ import { parseLatexLog } from './parser.js';
 import { detectSystemTeX } from '../../cli/system.js';
 
 export function resolveMainDocument(projectRoot: string, preferredFile?: string): string {
-  // 1. If preferredFile is given and exists, check if it contains a root magic comment or \documentclass
+  // 1. If preferredFile is explicitly set (user starred it or .gitleaf.json says so) and it exists, USE IT.
+  //    The user's explicit choice always wins — even if the file is a subfile without \documentclass.
   if (preferredFile) {
     const fullPreferred = path.join(projectRoot, preferredFile);
     if (fs.existsSync(fullPreferred)) {
+      // Check for TeX magic root comment: % !TeX root = ... — this overrides even the user's choice
       try {
         const content = fs.readFileSync(fullPreferred, 'utf-8');
-        // Check for TeX magic root comment: % !TeX root = ... or % !TEX root = ...
         const rootMatch = content.match(/%\s*!T[eE]X\s+root\s*=\s*([^\r\n]+)/i);
         if (rootMatch) {
           const rootTarget = rootMatch[1].trim();
-          const resolvedRoot = path.normalize(path.join(path.dirname(preferredFile), rootTarget));
+          const resolvedRoot = path.normalize(path.join(path.dirname(preferredFile), rootTarget)).replace(/\\/g, '/');
           if (fs.existsSync(path.join(projectRoot, resolvedRoot))) {
-            return resolvedRoot.replace(/\\/g, '/');
+            return resolvedRoot;
           }
         }
-        // If preferredFile actually has \documentclass, it's a valid root document
-        if (content.includes('\\documentclass')) {
-          return preferredFile;
-        }
       } catch {}
+      // Trust the user's selection — return it as-is
+      return preferredFile;
     }
   }
 
@@ -57,7 +56,7 @@ export function resolveMainDocument(projectRoot: string, preferredFile?: string)
         if (e.name.startsWith('.') || e.name === 'node_modules' || e.name === 'dist') continue;
         const full = path.join(dir, e.name);
         const rel = relDir ? `${relDir}/${e.name}` : e.name;
-        if (e.isDirectory() && relDir === '') {
+        if (e.isDirectory()) {
           const found = scanDir(full, rel);
           if (found) return found;
         } else if (e.isFile() && e.name.endsWith('.tex')) {
@@ -218,9 +217,14 @@ export class LatexCompiler {
 
         const fullLog = `${stdout}\n${stderr}`;
         const baseName = path.basename(mainFile).replace(/\.tex$/i, '');
-        const candidate1 = path.join(projectRoot, `${baseName}.pdf`);
-        const candidate2 = path.join(projectRoot, mainFile.replace(/\.tex$/i, '.pdf'));
-        const pdfPath = fs.existsSync(candidate1) ? candidate1 : (fs.existsSync(candidate2) ? candidate2 : candidate1);
+        const mainDir = path.dirname(mainFile);
+        // Check multiple candidate locations for the output PDF
+        const pdfCandidates = [
+          path.join(projectRoot, mainDir, `${baseName}.pdf`),   // Same dir as main file
+          path.join(projectRoot, `${baseName}.pdf`),             // Project root (basename)
+          path.join(projectRoot, mainFile.replace(/\.tex$/i, '.pdf')), // Full relative path
+        ];
+        const pdfPath = pdfCandidates.find(c => fs.existsSync(c)) || pdfCandidates[0];
         const hasPdf = fs.existsSync(pdfPath);
 
         const diagnostics = parseLatexLog(fullLog, mainFile, projectFiles);

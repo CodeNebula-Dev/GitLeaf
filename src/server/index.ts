@@ -212,8 +212,11 @@ app.post('/api/projects/:id/compile', async (req, res) => {
   }
 
   // 3. Resolve project root document (multi-file aware)
-  const resolvedMain = resolveMainDocument(project.rootPath, mainFile || project.mainFile);
-  if (project.mainFile !== resolvedMain) {
+  //    Use the explicitly set mainFile from the project metadata; only auto-detect if nothing is set.
+  const explicitMain = mainFile || project.mainFile;
+  const resolvedMain = resolveMainDocument(project.rootPath, explicitMain);
+  // Only auto-update project.mainFile if one hasn't been explicitly configured yet
+  if (!project.mainFile && resolvedMain !== 'main.tex') {
     projectManager.setMainFile(project.id, resolvedMain);
     project.mainFile = resolvedMain;
   }
@@ -249,22 +252,37 @@ app.get('/api/projects/:id/pdf', (req, res) => {
   const project = projectManager.getProject(req.params.id);
   if (!project) return res.status(404).send('Project not found');
 
-  const mainBase = (project.mainFile || 'main.tex').replace(/\.tex$/i, '');
-  let pdfPath = path.resolve(project.rootPath, `${mainBase}.pdf`);
+  // Resolve PDF path: TeX engines may place the output in the same directory as the main file,
+  // or in the project root (when using --outdir or cwd compilation). Try all candidates.
+  const mainFilePath = project.mainFile || 'main.tex';
+  const mainDir = path.dirname(mainFilePath);
+  const mainBase = path.basename(mainFilePath, '.tex');
 
-  if (!fs.existsSync(pdfPath)) {
-    const baseOnly = path.basename(project.mainFile || 'main.tex', '.tex');
-    const cand1 = path.resolve(project.rootPath, `${baseOnly}.pdf`);
-    if (fs.existsSync(cand1)) {
-      pdfPath = cand1;
-    } else {
-      try {
-        const pdfFiles = fs.readdirSync(project.rootPath).filter((f) => f.endsWith('.pdf'));
-        if (pdfFiles.length > 0) {
-          pdfPath = path.resolve(project.rootPath, pdfFiles[0]);
-        }
-      } catch {}
+  const candidates = [
+    // 1. Same directory as the main file (e.g. sections/chapter1.pdf)
+    path.resolve(project.rootPath, mainDir, `${mainBase}.pdf`),
+    // 2. Project root with basename only (e.g. chapter1.pdf)
+    path.resolve(project.rootPath, `${mainBase}.pdf`),
+    // 3. Project root with full relative path as name (e.g. sections-chapter1.pdf, unlikely but safe)
+    path.resolve(project.rootPath, mainFilePath.replace(/\.tex$/i, '.pdf')),
+  ];
+
+  let pdfPath = '';
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      pdfPath = c;
+      break;
     }
+  }
+
+  // Last resort: find any .pdf in the project root
+  if (!pdfPath) {
+    try {
+      const pdfFiles = fs.readdirSync(project.rootPath).filter((f) => f.endsWith('.pdf'));
+      if (pdfFiles.length > 0) {
+        pdfPath = path.resolve(project.rootPath, pdfFiles[0]);
+      }
+    } catch {}
   }
 
   if (!fs.existsSync(pdfPath)) {

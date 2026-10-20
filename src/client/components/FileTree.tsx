@@ -171,7 +171,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
 
   const renderNode = (node: TreeNode, depth: number = 0): React.ReactNode => {
     const isActive = node.path === activeFilePath;
-    const isMainFile = node.path === mainFile || node.name === mainFile;
+    const isMainFile = node.path === mainFile;
     const isExpanded = expandedDirs.has(node.path);
 
     if (node.type === 'directory') {
